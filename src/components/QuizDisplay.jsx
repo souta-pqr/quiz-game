@@ -1,8 +1,10 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import AudioPlayer from './AudioPlayer';
 
 const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer }) => {
   const progress = ((currentQuestion + 1) / totalQuestions) * 100;
+  const audioSrc = `/audio/question_${quiz.id}.wav`;
 
   return (
     <div className="mb-8">
@@ -20,10 +22,15 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
       </div>
 
       {/* クイズ問題 */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl mb-6">
-        <p className="text-xl font-semibold text-gray-800 text-center leading-relaxed">
+      <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl mb-4">
+        <p className="text-xl font-semibold text-gray-800 text-center leading-relaxed mb-4">
           {quiz.question}
         </p>
+        
+        {/* 音声プレイヤー */}
+        <div className="flex justify-center">
+          <AudioPlayer audioSrc={audioSrc} autoPlay={true} />
+        </div>
       </div>
 
       {/* フィードバック表示 */}
