@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import QuizDisplay from './components/QuizDisplay';
 import VoiceRecognition from './components/VoiceRecognition';
 import ScoreBoard from './components/ScoreBoard';
@@ -13,8 +13,18 @@ const App = () => {
   const [gameState, setGameState] = useState('playing'); // playing, finished
   const [showFeedback, setShowFeedback] = useState(false);
   const [lastAnswer, setLastAnswer] = useState(null);
+  const isProcessingRef = useRef(false);
 
   const handleAnswer = useCallback((userAnswer) => {
+    
+    // 重複回答を防ぐ
+    if (isProcessingRef.current) {
+      console.log('回答処理中のため無視');
+      return;
+    }
+    
+    isProcessingRef.current = true;
+    
     const currentQuiz = quizData[currentQuestion];
     const isCorrect = userAnswer === currentQuiz.answer;
     
@@ -37,6 +47,8 @@ const App = () => {
     // フィードバック表示後に次の問題へ
     setTimeout(() => {
       setShowFeedback(false);
+      isProcessingRef.current = false;
+      
       if (currentQuestion < quizData.length - 1) {
         setCurrentQuestion(prev => prev + 1);
       } else {
@@ -53,6 +65,19 @@ const App = () => {
     isSupported
   } = useVoiceRecognition(handleAnswer);
 
+  // フィードバック中は音声認識を一時停止
+  useEffect(() => {
+    if (showFeedback) {
+      console.log('フィードバック中: 音声認識停止');
+      stopListening();
+    } else if (gameState === 'playing') {
+      console.log('通常状態: 音声認識開始');
+      setTimeout(() => {
+        startListening();
+      }, 100);
+    }
+  }, [showFeedback, gameState, stopListening, startListening]);
+
   const resetGame = () => {
     setCurrentQuestion(0);
     setScore(0);
@@ -60,6 +85,7 @@ const App = () => {
     setGameState('playing');
     setShowFeedback(false);
     setLastAnswer(null);
+    isProcessingRef.current = false;
   };
 
   if (gameState === 'finished') {
