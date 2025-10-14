@@ -1,10 +1,19 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Check, X } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
 
-const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer }) => {
+const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = false }) => {
   const progress = ((currentQuestion + 1) / totalQuestions) * 100;
   const audioSrc = `/audio/question_${quiz.id}.wav`;
+  const audioPlayerRef = useRef(null);
+
+  // 物体検出からのトリガーで音声再生
+  useEffect(() => {
+    if (shouldPlayAudio && audioPlayerRef.current) {
+      console.log('物体検出トリガーにより音声を再生します');
+      audioPlayerRef.current.play();
+    }
+  }, [shouldPlayAudio]);
 
   return (
     <div className="mb-8">
@@ -29,7 +38,11 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
         
         {/* 音声プレイヤー */}
         <div className="flex justify-center">
-          <AudioPlayer audioSrc={audioSrc} autoPlay={true} />
+          <AudioPlayer 
+            ref={audioPlayerRef}
+            audioSrc={audioSrc} 
+            autoPlay={false} 
+          />
         </div>
       </div>
 

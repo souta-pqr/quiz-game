@@ -4,6 +4,7 @@ import VoiceRecognition from './components/VoiceRecognition';
 import ScoreBoard from './components/ScoreBoard';
 import ResultScreen from './components/ResultScreen';
 import { useVoiceRecognition } from './hooks/useVoiceRecognition';
+import { useObjectDetection } from './hooks/useObjectDetection';
 import { quizData } from './data/quizData';
 
 const App = () => {
@@ -13,7 +14,25 @@ const App = () => {
   const [gameState, setGameState] = useState('playing'); // playing, finished
   const [showFeedback, setShowFeedback] = useState(false);
   const [lastAnswer, setLastAnswer] = useState(null);
+  const [shouldPlayAudio, setShouldPlayAudio] = useState(false);
   const isProcessingRef = useRef(false);
+  const audioPlayRequestRef = useRef(false);
+
+  // 物体検出からの音声再生トリガー
+  const handlePlayAudioTrigger = useCallback(() => {
+    console.log('物体検出により音声再生がトリガーされました');
+    audioPlayRequestRef.current = true;
+    setShouldPlayAudio(true);
+    
+    // 一定時間後にフラグをリセット
+    setTimeout(() => {
+      audioPlayRequestRef.current = false;
+      setShouldPlayAudio(false);
+    }, 1000);
+  }, []);
+
+  // 物体検出フックを使用
+  const { isConnected, personDetected, detectionCount } = useObjectDetection(handlePlayAudioTrigger);
 
   const handleAnswer = useCallback((userAnswer) => {
     
@@ -109,6 +128,23 @@ const App = () => {
           <ScoreBoard score={score} currentQuestion={currentQuestion} />
         </div>
 
+        {/* 物体検出ステータス */}
+        <div className="mb-4">
+          <div className={`flex items-center gap-2 p-3 rounded-lg ${
+            isConnected ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+          }`}>
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+            <span className={`text-sm font-medium ${isConnected ? 'text-green-700' : 'text-gray-600'}`}>
+              {isConnected ? '物体検出: 接続中' : '物体検出: 切断中'}
+            </span>
+            {personDetected && (
+              <span className="ml-auto text-sm text-blue-700 font-semibold">
+                👤 人を検出中 ({detectionCount}人) - 3秒後に再生...
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* クイズ表示 */}
         <QuizDisplay
           quiz={currentQuiz}
@@ -116,6 +152,7 @@ const App = () => {
           totalQuestions={quizData.length}
           showFeedback={showFeedback}
           lastAnswer={lastAnswer}
+          shouldPlayAudio={shouldPlayAudio}
         />
 
         {/* 音声認識 */}

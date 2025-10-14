@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { Volume2, VolumeX, RotateCcw } from 'lucide-react';
 
-const AudioPlayer = ({ audioSrc, autoPlay = false }) => {
+const AudioPlayer = forwardRef(({ audioSrc, autoPlay = false }, ref) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -13,6 +13,11 @@ const AudioPlayer = ({ audioSrc, autoPlay = false }) => {
       setIsPlaying(true);
     }
   };
+
+  // 外部から呼び出せるメソッドを公開
+  useImperativeHandle(ref, () => ({
+    play: playAudio
+  }));
 
   const toggleMute = () => {
     if (audioRef.current) {
@@ -70,6 +75,8 @@ const AudioPlayer = ({ audioSrc, autoPlay = false }) => {
       )}
     </div>
   );
-};
+});
+
+AudioPlayer.displayName = 'AudioPlayer';
 
 export default AudioPlayer;
