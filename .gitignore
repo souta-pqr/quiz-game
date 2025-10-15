@@ -34,3 +34,18 @@ pnpm-debug.log*
 *.sw?
 
 public/*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Backend
+backend/venv/
+backend/__pycache__/
+backend/nanodet/__pycache__/
+*.onnx
