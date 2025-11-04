@@ -1,9 +1,8 @@
+// src/App.jsx - 音声認識部分を削除
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import QuizDisplay from './components/QuizDisplay';
-import VoiceRecognition from './components/VoiceRecognition';
 import ScoreBoard from './components/ScoreBoard';
 import ResultScreen from './components/ResultScreen';
-import { useVoiceRecognition } from './hooks/useVoiceRecognition';
 import { useObjectDetection } from './hooks/useObjectDetection';
 import { quizData } from './data/quizData';
 
@@ -11,7 +10,7 @@ const App = () => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
   const [answers, setAnswers] = useState([]);
-  const [gameState, setGameState] = useState('playing'); // playing, finished
+  const [gameState, setGameState] = useState('playing');
   const [showFeedback, setShowFeedback] = useState(false);
   const [lastAnswer, setLastAnswer] = useState(null);
   const [shouldPlayAudio, setShouldPlayAudio] = useState(false);
@@ -24,19 +23,15 @@ const App = () => {
     audioPlayRequestRef.current = true;
     setShouldPlayAudio(true);
     
-    // 一定時間後にフラグをリセット
     setTimeout(() => {
       audioPlayRequestRef.current = false;
       setShouldPlayAudio(false);
     }, 1000);
   }, []);
 
-  // 物体検出フックを使用
   const { isConnected, personDetected, detectionCount } = useObjectDetection(handlePlayAudioTrigger);
 
   const handleAnswer = useCallback((userAnswer) => {
-    
-    // 重複回答を防ぐ
     if (isProcessingRef.current) {
       console.log('回答処理中のため無視');
       return;
@@ -63,7 +58,6 @@ const App = () => {
       setScore(prev => prev + 1);
     }
 
-    // フィードバック表示後に次の問題へ
     setTimeout(() => {
       setShowFeedback(false);
       isProcessingRef.current = false;
@@ -76,26 +70,31 @@ const App = () => {
     }, 2000);
   }, [currentQuestion]);
 
-  const {
-    isListening,
-    recognizedText,
-    startListening,
-    stopListening,
-    isSupported
-  } = useVoiceRecognition(handleAnswer);
-
-  // フィードバック中は音声認識を一時停止
+  // キーボードイベント
   useEffect(() => {
-    if (showFeedback) {
-      console.log('フィードバック中: 音声認識停止');
-      stopListening();
-    } else if (gameState === 'playing') {
-      console.log('通常状態: 音声認識開始');
-      setTimeout(() => {
-        startListening();
-      }, 100);
-    }
-  }, [showFeedback, gameState, stopListening, startListening]);
+    const handleKeyPress = (event) => {
+      if (showFeedback || gameState !== 'playing') {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      
+      if (key === 'o') {
+        console.log('キーボード入力: まる');
+        handleAnswer(true);
+      }
+      else if (key === 'x') {
+        console.log('キーボード入力: ばつ');
+        handleAnswer(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress);
+    };
+  }, [handleAnswer, showFeedback, gameState]);
 
   const resetGame = () => {
     setCurrentQuestion(0);
@@ -155,16 +154,6 @@ const App = () => {
           shouldPlayAudio={shouldPlayAudio}
         />
 
-        {/* 音声認識 */}
-        <VoiceRecognition
-          isListening={isListening}
-          recognizedText={recognizedText}
-          startListening={startListening}
-          stopListening={stopListening}
-          disabled={showFeedback}
-          isSupported={isSupported}
-        />
-
         {/* 手動回答ボタン */}
         <div className="flex gap-4 mb-4">
           <button
@@ -191,7 +180,7 @@ const App = () => {
 
         {/* 説明 */}
         <div className="text-center text-sm text-gray-500">
-          ボタンをクリックするか、音声で「まる」「ばつ」と答えてください
+          ボタンをクリック、またはキーボード（<kbd className="px-2 py-1 bg-gray-200 rounded">O</kbd> = まる、<kbd className="px-2 py-1 bg-gray-200 rounded">X</kbd> = ばつ）で回答してください
         </div>
       </div>
     </div>
