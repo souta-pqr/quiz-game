@@ -8,10 +8,9 @@ export const useVoiceRecognition = (onAnswer) => {
   const isActiveRef = useRef(true);
   const isStartingRef = useRef(false);
   const restartTimeoutRef = useRef(null);
-  const consecutiveErrorsRef = useRef(0); // 連続エラー数
+  const consecutiveErrorsRef = useRef(0);
 
   useEffect(() => {
-    // 音声認識のサポート確認
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       setIsSupported(true);
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -25,11 +24,12 @@ export const useVoiceRecognition = (onAnswer) => {
         console.log('音声認識開始');
         setIsListening(true);
         isStartingRef.current = false;
-        consecutiveErrorsRef.current = 0; // 成功時にリセット
+        // エラーカウントはここではリセットしない！
       };
 
       recognitionInstance.onresult = (event) => {
-        consecutiveErrorsRef.current = 0; // 認識成功時にリセット
+        // 認識成功時のみリセット
+        consecutiveErrorsRef.current = 0;
         
         const lastResultIndex = event.results.length - 1;
         const transcript = event.results[lastResultIndex][0].transcript;
@@ -56,23 +56,20 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
-        // networkエラーの処理
         if (event.error === 'network') {
           consecutiveErrorsRef.current++;
           console.log(`連続エラー数: ${consecutiveErrorsRef.current}`);
           
-          // 3回連続でエラーが発生したら完全停止
           if (consecutiveErrorsRef.current >= 3) {
             console.error('⚠️ 音声認識が利用できません（ネットワークエラー）');
             console.error('手動ボタンで回答してください');
             isActiveRef.current = false;
             setIsSupported(false);
-            setRecognizedText('音声認識が利用できません');
-            return; // ここで完全に停止
+            setRecognizedText('');
+            return;
           }
         }
         
-        // abortedエラーは無視
         if (event.error === 'aborted') {
           return;
         }
@@ -83,24 +80,22 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
-        // エラーカウントが上限に達していたら再起動しない
         if (consecutiveErrorsRef.current >= 3) {
-          console.log('エラー上限に達したため、再起動しません');
+          console.log('エラー上限到達 - 再起動しません');
           isActiveRef.current = false;
           return;
         }
         
-        // 自動的に再開
         if (isActiveRef.current) {
           if (restartTimeoutRef.current) {
             clearTimeout(restartTimeoutRef.current);
           }
           
-          // エラー発生時は待機時間を長くする
-          const delay = consecutiveErrorsRef.current > 0 ? 2000 : 500;
+          const delay = consecutiveErrorsRef.current > 0 ? 3000 : 500;
           
           restartTimeoutRef.current = setTimeout(() => {
             if (isActiveRef.current && recognitionRef.current && !isStartingRef.current) {
+              console.log('音声認識を再起動します...');
               isStartingRef.current = true;
               try {
                 recognitionRef.current.start();
@@ -115,7 +110,6 @@ export const useVoiceRecognition = (onAnswer) => {
 
       recognitionRef.current = recognitionInstance;
       
-      // 初回起動
       const initTimer = setTimeout(() => {
         if (recognitionRef.current && isActiveRef.current && !isStartingRef.current) {
           isStartingRef.current = true;
@@ -130,7 +124,7 @@ export const useVoiceRecognition = (onAnswer) => {
             isStartingRef.current = false;
           }
         }
-      }, 1000); // 初回は1秒待つ
+      }, 1000);
       
       return () => {
         clearTimeout(initTimer);
