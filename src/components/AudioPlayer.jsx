@@ -9,12 +9,18 @@ const AudioPlayer = forwardRef(({ audioSrc, autoPlay = false }, ref) => {
   const playAudio = () => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
-      audioRef.current.play();
-      setIsPlaying(true);
+      audioRef.current.play()
+        .then(() => {
+          console.log('音声再生開始');
+          setIsPlaying(true);
+        })
+        .catch(error => {
+          console.error('音声再生エラー:', error);
+          // 自動再生が失敗した場合は無視（ユーザーが手動で再生ボタンを押せる）
+        });
     }
   };
 
-  // 外部から呼び出せるメソッドを公開
   useImperativeHandle(ref, () => ({
     play: playAudio
   }));
