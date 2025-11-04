@@ -2,20 +2,20 @@
 export const quizData = [
   {
     id: 1,
-    question: "地球は太陽の周りを回っている",
+    question: "未ロボの教授は，半数以上が未ロボ以外の専攻に所属している",
     answer: true,
-    explanation: "地球は太陽の周りを公転しています"
+    explanation: "7人の教授が工学研究科 工学専攻に所属している．　出典：https://www.lib.it-chiba.ac.jp/cithp/KgApp?resId=S000182"
   },
   {
     id: 2,
-    question: "富士山は日本で2番目に高い山である",
+    question: "藤江先生と同じ誕生日の有名人にはお笑いコンビ「タカアンドトシ」のタカがいる",
     answer: false,
-    explanation: "富士山は日本で最も高い山です(3,776m)"
+    explanation: "タカの誕生日は4月3日です．　出典：https://www.nengou-whisky.com/tanjoubi/bYear1976.html"
   },
   {
     id: 3,
-    question: "1週間は7日間である",
+    question: "上田先生は，四谷のミスタードーナツでドーナツを売り捌いていたことがある",
     answer: true,
-    explanation: "月曜日から日曜日まで7日間です"
+    explanation: "学生時代のアルバイトで，ミスタードーナツで働いていたそうです．　出典：https://b.ueda.tech/?page=bio"
   }
 ];
