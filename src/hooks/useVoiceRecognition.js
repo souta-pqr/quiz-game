@@ -1,4 +1,3 @@
-// src/hooks/useVoiceRecognition.js を以下のように修正
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useVoiceRecognition = (onAnswer) => {
@@ -9,8 +8,7 @@ export const useVoiceRecognition = (onAnswer) => {
   const isActiveRef = useRef(true);
   const isStartingRef = useRef(false);
   const restartTimeoutRef = useRef(null);
-  const errorCountRef = useRef(0); // エラーカウンターを追加
-  const lastErrorTimeRef = useRef(0); // 最後のエラー時刻
+  const consecutiveErrorsRef = useRef(0); // 連続エラー数
 
   useEffect(() => {
     // 音声認識のサポート確認
@@ -27,30 +25,28 @@ export const useVoiceRecognition = (onAnswer) => {
         console.log('音声認識開始');
         setIsListening(true);
         isStartingRef.current = false;
-        errorCountRef.current = 0; // 開始成功時にエラーカウントをリセット
+        consecutiveErrorsRef.current = 0; // 成功時にリセット
       };
 
       recognitionInstance.onresult = (event) => {
+        consecutiveErrorsRef.current = 0; // 認識成功時にリセット
+        
         const lastResultIndex = event.results.length - 1;
         const transcript = event.results[lastResultIndex][0].transcript;
         
-        // 最終結果のみ処理
         if (event.results[lastResultIndex].isFinal) {
           console.log('認識結果:', transcript);
           setRecognizedText(transcript);
           
-          // 「まる」「マル」「○」を認識
           if (transcript.includes('まる') || transcript.includes('マル') || transcript.includes('丸')) {
             onAnswer(true);
             setRecognizedText('');
           }
-          // 「ばつ」「バツ」「×」を認識
           else if (transcript.includes('ばつ') || transcript.includes('バツ') || transcript.includes('ペケ')) {
             onAnswer(false);
             setRecognizedText('');
           }
         } else {
-          // 中間結果を表示
           setRecognizedText(transcript);
         }
       };
@@ -60,48 +56,25 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
-        // networkエラーの場合は再試行を制限
+        // networkエラーの処理
         if (event.error === 'network') {
-          const now = Date.now();
+          consecutiveErrorsRef.current++;
+          console.log(`連続エラー数: ${consecutiveErrorsRef.current}`);
           
-          // 1秒以内の連続エラーをカウント
-          if (now - lastErrorTimeRef.current < 1000) {
-            errorCountRef.current++;
-          } else {
-            errorCountRef.current = 1;
-          }
-          lastErrorTimeRef.current = now;
-          
-          // 3回連続でネットワークエラーが発生したら再試行を停止
-          if (errorCountRef.current >= 3) {
-            console.error('音声認識が利用できません。ネットワークエラーが連続して発生しました。');
+          // 3回連続でエラーが発生したら完全停止
+          if (consecutiveErrorsRef.current >= 3) {
+            console.error('⚠️ 音声認識が利用できません（ネットワークエラー）');
+            console.error('手動ボタンで回答してください');
             isActiveRef.current = false;
-            setIsSupported(false); // サポート対象外として扱う
-            return;
+            setIsSupported(false);
+            setRecognizedText('音声認識が利用できません');
+            return; // ここで完全に停止
           }
         }
         
-        // abortedエラーは無視（手動停止によるもの）
+        // abortedエラーは無視
         if (event.error === 'aborted') {
           return;
-        }
-        
-        // no-speechエラーの場合は自動再開
-        if (event.error === 'no-speech' && isActiveRef.current) {
-          if (restartTimeoutRef.current) {
-            clearTimeout(restartTimeoutRef.current);
-          }
-          restartTimeoutRef.current = setTimeout(() => {
-            if (isActiveRef.current && recognitionRef.current && !isStartingRef.current) {
-              isStartingRef.current = true;
-              try {
-                recognitionRef.current.start();
-              } catch (e) {
-                console.log('再開エラー:', e);
-                isStartingRef.current = false;
-              }
-            }
-          }, 300);
         }
       };
 
@@ -110,22 +83,33 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
-        // 自動的に再開（ただしエラーカウントが上限に達していない場合のみ）
-        if (isActiveRef.current && errorCountRef.current < 3) {
+        // エラーカウントが上限に達していたら再起動しない
+        if (consecutiveErrorsRef.current >= 3) {
+          console.log('エラー上限に達したため、再起動しません');
+          isActiveRef.current = false;
+          return;
+        }
+        
+        // 自動的に再開
+        if (isActiveRef.current) {
           if (restartTimeoutRef.current) {
             clearTimeout(restartTimeoutRef.current);
           }
+          
+          // エラー発生時は待機時間を長くする
+          const delay = consecutiveErrorsRef.current > 0 ? 2000 : 500;
+          
           restartTimeoutRef.current = setTimeout(() => {
             if (isActiveRef.current && recognitionRef.current && !isStartingRef.current) {
               isStartingRef.current = true;
               try {
                 recognitionRef.current.start();
               } catch (e) {
-                console.log('再開試行:', e);
+                console.log('再開試行エラー:', e);
                 isStartingRef.current = false;
               }
             }
-          }, 1000); // 待機時間を1秒に延長
+          }, delay);
         }
       };
 
@@ -146,11 +130,14 @@ export const useVoiceRecognition = (onAnswer) => {
             isStartingRef.current = false;
           }
         }
-      }, 500);
+      }, 1000); // 初回は1秒待つ
       
       return () => {
         clearTimeout(initTimer);
       };
+    } else {
+      console.log('このブラウザは音声認識に対応していません');
+      setIsSupported(false);
     }
 
     return () => {
@@ -169,9 +156,9 @@ export const useVoiceRecognition = (onAnswer) => {
   }, [onAnswer]);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isStartingRef.current) {
+    if (recognitionRef.current && !isStartingRef.current && isSupported) {
       isActiveRef.current = true;
-      errorCountRef.current = 0; // 手動開始時にエラーカウントをリセット
+      consecutiveErrorsRef.current = 0;
       setRecognizedText('');
       
       if (restartTimeoutRef.current) {
@@ -191,7 +178,7 @@ export const useVoiceRecognition = (onAnswer) => {
         isStartingRef.current = false;
       }
     }
-  }, []);
+  }, [isSupported]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
