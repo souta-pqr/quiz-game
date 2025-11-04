@@ -8,7 +8,7 @@ export const quizData = [
   },
   {
     id: 2,
-    question: "藤江先生と同じ誕生日の有名人にはお笑いコンビ「タカアンドトシ」のタカがいる",
+    question: "藤江先生と同じ誕生日の有名人には，お笑いコンビ「タカアンドトシ」のタカがいる",
     answer: false,
     explanation: "タカの誕生日は4月3日です．　出典：https://www.nengou-whisky.com/tanjoubi/bYear1976.html"
   },
