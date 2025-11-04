@@ -1,3 +1,4 @@
+// src/hooks/useVoiceRecognition.js を以下のように修正
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useVoiceRecognition = (onAnswer) => {
@@ -8,6 +9,8 @@ export const useVoiceRecognition = (onAnswer) => {
   const isActiveRef = useRef(true);
   const isStartingRef = useRef(false);
   const restartTimeoutRef = useRef(null);
+  const errorCountRef = useRef(0); // エラーカウンターを追加
+  const lastErrorTimeRef = useRef(0); // 最後のエラー時刻
 
   useEffect(() => {
     // 音声認識のサポート確認
@@ -24,6 +27,7 @@ export const useVoiceRecognition = (onAnswer) => {
         console.log('音声認識開始');
         setIsListening(true);
         isStartingRef.current = false;
+        errorCountRef.current = 0; // 開始成功時にエラーカウントをリセット
       };
 
       recognitionInstance.onresult = (event) => {
@@ -56,6 +60,27 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
+        // networkエラーの場合は再試行を制限
+        if (event.error === 'network') {
+          const now = Date.now();
+          
+          // 1秒以内の連続エラーをカウント
+          if (now - lastErrorTimeRef.current < 1000) {
+            errorCountRef.current++;
+          } else {
+            errorCountRef.current = 1;
+          }
+          lastErrorTimeRef.current = now;
+          
+          // 3回連続でネットワークエラーが発生したら再試行を停止
+          if (errorCountRef.current >= 3) {
+            console.error('音声認識が利用できません。ネットワークエラーが連続して発生しました。');
+            isActiveRef.current = false;
+            setIsSupported(false); // サポート対象外として扱う
+            return;
+          }
+        }
+        
         // abortedエラーは無視（手動停止によるもの）
         if (event.error === 'aborted') {
           return;
@@ -85,8 +110,8 @@ export const useVoiceRecognition = (onAnswer) => {
         setIsListening(false);
         isStartingRef.current = false;
         
-        // 自動的に再開
-        if (isActiveRef.current) {
+        // 自動的に再開（ただしエラーカウントが上限に達していない場合のみ）
+        if (isActiveRef.current && errorCountRef.current < 3) {
           if (restartTimeoutRef.current) {
             clearTimeout(restartTimeoutRef.current);
           }
@@ -100,7 +125,7 @@ export const useVoiceRecognition = (onAnswer) => {
                 isStartingRef.current = false;
               }
             }
-          }, 300);
+          }, 1000); // 待機時間を1秒に延長
         }
       };
 
@@ -113,7 +138,6 @@ export const useVoiceRecognition = (onAnswer) => {
           try {
             recognitionRef.current.start();
           } catch (e) {
-            // already startedエラーは無視
             if (e.message && e.message.includes('already started')) {
               console.log('音声認識は既に開始されています');
             } else {
@@ -147,6 +171,7 @@ export const useVoiceRecognition = (onAnswer) => {
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isStartingRef.current) {
       isActiveRef.current = true;
+      errorCountRef.current = 0; // 手動開始時にエラーカウントをリセット
       setRecognizedText('');
       
       if (restartTimeoutRef.current) {
@@ -157,10 +182,8 @@ export const useVoiceRecognition = (onAnswer) => {
       try {
         recognitionRef.current.start();
       } catch (e) {
-        // already startedエラーは無視
         if (e.message && e.message.includes('already started')) {
           console.log('音声認識は既に開始されています');
-          // 既に開始されている場合は状態を更新
           setIsListening(true);
         } else {
           console.log('開始エラー:', e);
@@ -182,7 +205,6 @@ export const useVoiceRecognition = (onAnswer) => {
       try {
         recognitionRef.current.stop();
       } catch (e) {
-        // 既に停止している場合は無視
         if (e.message && !e.message.includes('already')) {
           console.log('停止エラー:', e);
         }
