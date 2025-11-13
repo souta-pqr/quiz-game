@@ -50,3 +50,6 @@ backend/__pycache__/
 backend/nanodet/__pycache__/
 backend/model/
 *.onnx
+fjext/
+warprnnt_pytorch/
+data/
