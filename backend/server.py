@@ -31,6 +31,63 @@ STABLE_DETECTION_THRESHOLD = 5
 vosk_model = None
 SAMPLE_RATE = 16000  # Voskは16kHzを推奨
 
+# WebSocket接続ごとにKaldiRecognizerを保持
+recognizers = {}
+
+def get_or_create_recognizer(connection_id: str) -> KaldiRecognizer:
+    """接続IDに対応するKaldiRecognizerを取得または作成"""
+    if connection_id not in recognizers:
+        if vosk_model is None:
+            return None
+        recognizers[connection_id] = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+        recognizers[connection_id].SetWords(True)
+        print(f"✓ 新しいKaldiRecognizerを作成: {connection_id}")
+    return recognizers[connection_id]
+
+def cleanup_recognizer(connection_id: str):
+    """接続終了時にKaldiRecognizerをクリーンアップ"""
+    if connection_id in recognizers:
+        del recognizers[connection_id]
+        print(f"✓ KaldiRecognizerをクリーンアップ: {connection_id}")
+
+def process_audio_with_vosk(audio_data: bytes, connection_id: str) -> dict:
+    """
+    Voskを使って音声データを処理
+    
+    Args:
+        audio_data: 16kHz, 16-bit PCM 形式の音声データ
+        connection_id: WebSocket接続ID
+    
+    Returns:
+        認識結果の辞書
+    """
+    if vosk_model is None:
+        return {"error": "Vosk model not initialized"}
+    
+    try:
+        rec = get_or_create_recognizer(connection_id)
+        if rec is None:
+            return {"error": "Failed to create recognizer"}
+        
+        # 音声データを処理
+        if rec.AcceptWaveform(audio_data):
+            result = json.loads(rec.Result())
+            if "text" in result and result["text"]:
+                print(f"✓ 完全認識: '{result['text']}'")
+                return result
+        
+        # 部分認識結果を取得
+        result = json.loads(rec.PartialResult())
+        if "partial" in result and result["partial"]:
+            print(f"⋯ 部分認識: '{result['partial']}'")
+        
+        return result
+    except Exception as e:
+        print(f"❌ 音声認識エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
@@ -219,47 +276,6 @@ async def run_detection():
         cap.release()
         print("物体検出を停止しました")
 
-def process_audio_with_vosk(audio_data: bytes) -> dict:
-    """
-    Voskを使って音声データを処理
-    
-    Args:
-        audio_data: 16kHz, 16-bit PCM 形式の音声データ
-    
-    Returns:
-        認識結果の辞書
-    """
-    if vosk_model is None:
-        print("⚠️  Voskモデルが初期化されていません")
-        return {"error": "Vosk model not initialized"}
-    
-    try:
-        print(f"📥 音声データ受信: {len(audio_data)} バイト")
-        
-        rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-        rec.SetWords(True)
-        
-        # 音声データを処理
-        if rec.AcceptWaveform(audio_data):
-            result = json.loads(rec.Result())
-            print(f"✓ 完全認識結果: {result}")
-        else:
-            result = json.loads(rec.PartialResult())
-            print(f"⋯ 部分認識結果: {result}")
-        
-        # 認識されたテキストをログ出力
-        if "text" in result and result["text"]:
-            print(f"🎤 認識テキスト: '{result['text']}'")
-        elif "partial" in result and result["partial"]:
-            print(f"🎤 部分テキスト: '{result['partial']}'")
-        
-        return result
-    except Exception as e:
-        print(f"❌ 音声認識エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"error": str(e)}
-
 @app.get("/")
 async def root():
     return {
@@ -287,7 +303,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     await websocket.accept()
     active_connections.add(websocket)
-    print(f"WebSocket接続が確立されました。アクティブ接続数: {len(active_connections)}")
+    connection_id = str(id(websocket))
+    print(f"WebSocket接続が確立されました。接続ID: {connection_id}、アクティブ接続数: {len(active_connections)}")
     
     # 物体検出を開始
     if detector is not None and not detection_running:
@@ -307,10 +324,17 @@ async def websocket_endpoint(websocket: WebSocket):
             elif "bytes" in data:
                 # 音声データを受信
                 audio_data = data["bytes"]
-                print(f"📦 バイナリデータ受信: {len(audio_data)} バイト")
+                
+                # デバッグ: データサイズを定期的に表示（10回に1回）
+                if not hasattr(websocket, '_chunk_count'):
+                    websocket._chunk_count = 0
+                websocket._chunk_count += 1
+                
+                if websocket._chunk_count % 10 == 0:
+                    print(f"📦 音声データ受信 (接続ID: {connection_id}): {len(audio_data)} バイト")
                 
                 if vosk_model is not None:
-                    result = process_audio_with_vosk(audio_data)
+                    result = process_audio_with_vosk(audio_data, connection_id)
                     
                     # エラーがあれば送信
                     if "error" in result:
@@ -323,7 +347,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     # テキストが認識された場合（完全認識）
                     if "text" in result and result["text"]:
                         text = result["text"]
-                        print(f"📝 完全認識: {text}")
                         
                         # 「まる」「ばつ」を検出
                         answer = None
@@ -344,7 +367,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     # 部分認識結果がある場合
                     elif "partial" in result and result["partial"]:
                         partial_text = result["partial"]
-                        print(f"📝 部分認識: {partial_text}")
                         
                         await websocket.send_json({
                             "type": "speech_result",
@@ -353,18 +375,24 @@ async def websocket_endpoint(websocket: WebSocket):
                             "is_final": False
                         })
                 else:
-                    print("⚠️  Voskモデルが初期化されていません")
+                    if websocket._chunk_count == 1:
+                        print("⚠️  Voskモデルが初期化されていません")
     
     except WebSocketDisconnect:
         active_connections.remove(websocket)
-        print(f"WebSocket接続が切断されました。アクティブ接続数: {len(active_connections)}")
+        cleanup_recognizer(connection_id)
+        print(f"WebSocket接続が切断されました。接続ID: {connection_id}、アクティブ接続数: {len(active_connections)}")
         
         if len(active_connections) == 0:
             detection_running = False
     except Exception as e:
         print(f"WebSocketエラー: {e}")
+        import traceback
+        traceback.print_exc()
         active_connections.discard(websocket)
+        cleanup_recognizer(connection_id)
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    

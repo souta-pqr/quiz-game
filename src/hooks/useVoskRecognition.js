@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 /**
- * Vosk音声認識用カスタムフック
+ * Vosk音声認識用カスタムフック（常時認識モード）
  * マイクから音声を取得し、WebSocket経由でバックエンドに送信
  */
 export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000/ws') => {
@@ -11,6 +11,7 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
   const [isSupported, setIsSupported] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [debugInfo, setDebugInfo] = useState('');
+  const [autoStartEnabled, setAutoStartEnabled] = useState(true);
   
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -18,6 +19,7 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
   const streamRef = useRef(null);
   const isActiveRef = useRef(true);
   const audioChunkCountRef = useRef(0);
+  const shouldRestartRef = useRef(true);
 
   // 音声データを処理してバックエンドに送信
   const processAudioData = useCallback((audioData) => {
@@ -28,9 +30,9 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
         wsRef.current.send(pcmData);
         
         audioChunkCountRef.current++;
-        if (audioChunkCountRef.current % 10 === 0) {
-          console.log(`📤 音声データ送信: ${audioChunkCountRef.current}チャンク目, ${pcmData.byteLength}バイト`);
-          setDebugInfo(`送信: ${audioChunkCountRef.current}チャンク, ${pcmData.byteLength}バイト`);
+        if (audioChunkCountRef.current % 50 === 0) {
+          console.log(`📤 音声データ送信: ${audioChunkCountRef.current}チャンク目`);
+          setDebugInfo(`送信: ${audioChunkCountRef.current}チャンク`);
         }
       } catch (error) {
         console.error('音声データ送信エラー:', error);
@@ -41,10 +43,8 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
 
   // 音声データを16kHz, 16-bit PCMに変換
   const convertTo16kHzPCM = (audioData) => {
-    const sampleRate = audioContextRef.current.sampleRate;
+    const sampleRate = audioContextRef.current?.sampleRate || 48000;
     const targetSampleRate = 16000;
-    
-    console.log(`🔄 リサンプリング: ${sampleRate}Hz → ${targetSampleRate}Hz`);
     
     // リサンプリング
     const ratio = sampleRate / targetSampleRate;
@@ -77,12 +77,11 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
       ws.onopen = () => {
         console.log('✅ Vosk WebSocket接続が確立されました');
         setIsConnected(true);
-        setDebugInfo('WebSocket接続成功');
+        setDebugInfo('接続成功');
       };
       
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('📨 受信:', data);
         
         if (data.type === 'speech_result') {
           const timestamp = new Date().toLocaleTimeString();
@@ -100,7 +99,11 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
           
           // 現在の認識テキストを更新
           setRecognizedText(data.text);
-          setDebugInfo(`認識: ${data.text} (${data.is_final ? '確定' : '部分'})`);
+          
+          if (data.is_final) {
+            console.log(`📝 完全認識: ${data.text}`);
+            setDebugInfo(`認識: ${data.text}`);
+          }
           
           // 回答が検出された場合
           if (data.is_final && data.answer !== null && data.answer !== undefined) {
@@ -122,12 +125,12 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
       ws.onclose = () => {
         console.log('🔌 WebSocket接続が切断されました');
         setIsConnected(false);
-        setDebugInfo('WebSocket切断');
+        setDebugInfo('切断');
         
         // 5秒後に再接続を試みる
-        if (isActiveRef.current) {
+        if (shouldRestartRef.current) {
           setTimeout(() => {
-            if (isActiveRef.current) {
+            if (shouldRestartRef.current) {
               console.log('🔄 WebSocket再接続を試みます...');
               connectWebSocket();
             }
@@ -148,6 +151,12 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
       console.error('❌ このブラウザはマイク入力に対応していません');
       setIsSupported(false);
       setDebugInfo('マイク非対応');
+      return;
+    }
+
+    // 既に起動中なら何もしない
+    if (isActiveRef.current && audioContextRef.current) {
+      console.log('ℹ️ 音声認識は既に実行中です');
       return;
     }
 
@@ -193,17 +202,28 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
       processor.connect(audioContext.destination);
       
       audioChunkCountRef.current = 0;
+      isActiveRef.current = true;
       setIsListening(true);
-      setDebugInfo('音声認識開始');
-      console.log('✅ 音声認識を開始しました');
+      setDebugInfo('認識中');
+      console.log('✅ 音声認識を開始しました（常時モード）');
       console.log(`サンプルレート: ${audioContext.sampleRate}Hz`);
       
     } catch (error) {
       console.error('❌ マイクアクセスエラー:', error);
       setIsSupported(false);
       setDebugInfo(`マイクエラー: ${error.message}`);
+      
+      // 5秒後に再試行
+      if (autoStartEnabled && shouldRestartRef.current) {
+        setTimeout(() => {
+          if (shouldRestartRef.current) {
+            console.log('🔄 マイクアクセスを再試行します...');
+            startListening();
+          }
+        }, 5000);
+      }
     }
-  }, [processAudioData]);
+  }, [processAudioData, autoStartEnabled]);
 
   // マイク入力を停止
   const stopListening = useCallback(() => {
@@ -227,7 +247,7 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
     
     audioChunkCountRef.current = 0;
     setIsListening(false);
-    setDebugInfo('音声認識停止');
+    setDebugInfo('停止');
     console.log('✅ 音声認識を停止しました');
   }, []);
 
@@ -237,26 +257,38 @@ export const useVoskRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000
     setDebugInfo('履歴クリア');
   }, []);
 
-  // 初期化
+  // 初期化と自動起動
   useEffect(() => {
     // ブラウザ対応チェック
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       setIsSupported(true);
+    } else {
+      setIsSupported(false);
+      console.warn('⚠️ このブラウザはマイク入力に対応していません');
     }
     
     // WebSocket接続
     connectWebSocket();
     
+    // 少し遅延してから自動的に音声認識を開始
+    const autoStartTimer = setTimeout(() => {
+      if (autoStartEnabled && shouldRestartRef.current) {
+        console.log('🚀 音声認識を自動起動します...');
+        startListening();
+      }
+    }, 2000);
+    
     // クリーンアップ
     return () => {
-      isActiveRef.current = false;
+      clearTimeout(autoStartTimer);
+      shouldRestartRef.current = false;
       stopListening();
       
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [connectWebSocket, stopListening]);
+  }, [connectWebSocket, startListening, stopListening, autoStartEnabled]);
 
   return {
     isListening,

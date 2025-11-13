@@ -111,12 +111,25 @@ const App = () => {
     };
   }, [handleAnswer, showFeedback, gameState]);
 
-  // フィードバック中は音声認識を一時停止
+  // フィードバック中は音声認識を一時停止、終了後に再開
   useEffect(() => {
-    if (showFeedback && isVoskListening) {
-      stopVoskListening();
+    if (showFeedback) {
+      console.log('フィードバック表示中: 音声認識を一時停止');
+      if (isVoskListening) {
+        stopVoskListening();
+      }
+    } else {
+      // フィードバック終了後、少し遅延してから音声認識を再開
+      const restartTimer = setTimeout(() => {
+        if (!isVoskListening && isVoskSupported && isVoskConnected) {
+          console.log('フィードバック終了: 音声認識を再開');
+          startVoskListening();
+        }
+      }, 500);
+      
+      return () => clearTimeout(restartTimer);
     }
-  }, [showFeedback, isVoskListening, stopVoskListening]);
+  }, [showFeedback, isVoskListening, isVoskSupported, isVoskConnected, startVoskListening, stopVoskListening]);
 
   const resetGame = () => {
     setCurrentQuestion(0);
@@ -126,6 +139,7 @@ const App = () => {
     setShowFeedback(false);
     setLastAnswer(null);
     isProcessingRef.current = false;
+    clearVoskHistory();
   };
 
   if (gameState === 'finished') {
@@ -152,7 +166,7 @@ const App = () => {
         {/* 接続ステータス */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           {/* 物体検出ステータス */}
-          <div className={`flex items-center gap-2 p-3 rounded-lg ${
+          <div className={`flex items-center gap-2 p-3 rounded-lg transition-colors ${
             isDetectionConnected ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
           }`}>
             <div className={`w-3 h-3 rounded-full ${isDetectionConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
@@ -162,7 +176,7 @@ const App = () => {
           </div>
 
           {/* Vosk音声認識ステータス */}
-          <div className={`flex items-center gap-2 p-3 rounded-lg ${
+          <div className={`flex items-center gap-2 p-3 rounded-lg transition-colors ${
             isVoskConnected ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'
           }`}>
             <div className={`w-3 h-3 rounded-full ${isVoskConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></div>
@@ -174,7 +188,7 @@ const App = () => {
 
         {/* 人検出表示 */}
         {personDetected && (
-          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg animate-pulse">
             <span className="text-sm text-yellow-800 font-semibold">
               👤 人を検出中 ({detectionCount}人) - 3秒後に音声再生...
             </span>
@@ -210,7 +224,7 @@ const App = () => {
           <button
             onClick={() => handleAnswer(true)}
             disabled={showFeedback}
-            className="flex-1 bg-green-500 text-white py-4 rounded-xl font-bold text-xl hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 bg-green-500 text-white py-4 rounded-xl font-bold text-xl hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
           >
             <div className="w-12 h-12 rounded-full border-4 border-white flex items-center justify-center text-2xl">
               ○
@@ -220,7 +234,7 @@ const App = () => {
           <button
             onClick={() => handleAnswer(false)}
             disabled={showFeedback}
-            className="flex-1 bg-red-500 text-white py-4 rounded-xl font-bold text-xl hover:bg-red-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 bg-red-500 text-white py-4 rounded-xl font-bold text-xl hover:bg-red-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
           >
             <div className="w-12 h-12 flex items-center justify-center text-3xl">
               ×
@@ -230,9 +244,10 @@ const App = () => {
         </div>
 
         {/* 説明 */}
-        <div className="text-center text-sm text-gray-500">
-          <p className="mb-1">🎤 音声認識を開始して「まる」「ばつ」と発話</p>
-          <p>または、ボタン / キーボード（<kbd className="px-2 py-1 bg-gray-200 rounded">O</kbd> = まる、<kbd className="px-2 py-1 bg-gray-200 rounded">X</kbd> = ばつ）で回答</p>
+        <div className="text-center text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-200">
+          <p className="mb-1 font-semibold">💡 回答方法</p>
+          <p className="mb-1">🎤 音声: 「まる」「ばつ」と発話（常時認識）</p>
+          <p>⌨️ キーボード: <kbd className="px-2 py-1 bg-gray-200 rounded text-xs">O</kbd> = まる、<kbd className="px-2 py-1 bg-gray-200 rounded text-xs">X</kbd> = ばつ</p>
         </div>
       </div>
     </div>

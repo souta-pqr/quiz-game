@@ -32,7 +32,7 @@ cd backend
 # Voskモデルをダウンロード
 wget https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip
 unzip vosk-model-small-ja-0.22.zip
-mkdir -p model && mv vosk-model-small-ja-0.22 model/
+mv vosk-model-small-ja-0.22 model/
 
 # Python仮想環境を作成
 python3 -m venv venv
@@ -107,7 +107,7 @@ python3 generate_quiz_audio.py
 - **React 18** - UIフレームワーク
 - **Vite** - ビルドツール
 - **Tailwind CSS** - スタイリング
-- **Web Speech API** - 音声認識
+- **Vosk** - 音声認識
 - **WebSocket** - リアルタイム通信
 - **Lucide React** - アイコン
 
