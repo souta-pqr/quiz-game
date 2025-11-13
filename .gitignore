@@ -48,4 +48,5 @@ ENV/
 backend/venv/
 backend/__pycache__/
 backend/nanodet/__pycache__/
+backend/model/
 *.onnx
