@@ -77,7 +77,13 @@ def initialize_vad():
         print("VADなしで動作します（音声認識精度が低下する可能性があります）")
 
 class AudioProcessor:
-    """音声処理クラス（VAD + Whisper）"""
+    """音声処理クラス（VAD + Whisper）
+    
+    test-whisper-vad.pyと同じロジックでVAD + Whisperを処理
+    - フロントエンドから約85ms(~1365サンプル)のチャンクを受信
+    - 各チャンクに対してVADで音声/無音を判定
+    - 音声区間を検出したら蓄積し、無音になったらWhisperで認識
+    """
     
     def __init__(self, connection_id: str):
         self.connection_id = connection_id
@@ -87,13 +93,13 @@ class AudioProcessor:
         self.is_speech = False
         self.speech_start_time = None
         self.silence_duration = 0
-        self.vad_threshold = 0.000001  # 0.5 → 0.1に大幅に下げる
+        self.vad_threshold = 0.5  # VAD閾値（0.5 = デフォルト）
         self.speech_pad_ms = 300  # 音声前後のパディング（ミリ秒）
         self.min_speech_duration = 0.3  # 最小音声長（秒）
         self.max_speech_duration = 10.0  # 最大音声長（秒）
         
         print(f"✓ AudioProcessor初期化: {connection_id}")
-        print(f"  VAD閾値: {self.vad_threshold} (低感度モード)")
+        print(f"  VAD閾値: {self.vad_threshold}")
     
     def process_audio_chunk(self, audio_data: np.ndarray) -> Optional[dict]:
         """
@@ -121,19 +127,9 @@ class AudioProcessor:
         # バッファに追加
         self.audio_buffer.extend(audio_data)
         
-        # VAD処理
-        chunk_size = int(SAMPLE_RATE * 0.512)  # 512msチャンク
-        
-        if len(audio_data) < chunk_size:
-            # データが不足している場合はパディング
-            padded = np.zeros(chunk_size, dtype=np.float32)
-            padded[:len(audio_data)] = audio_data
-            audio_chunk = padded
-        else:
-            audio_chunk = audio_data[:chunk_size]
-        
-        # PyTorchテンソルに変換
-        audio_tensor = torch.from_numpy(audio_chunk).float()
+        # PyTorchテンソルに変換してVAD処理
+        # 重要: test-whisper-vad.pyと同じく、受信したチャンクをそのまま使用
+        audio_tensor = torch.from_numpy(audio_data).float()
         
         # VADで音声区間を検出
         try:
@@ -159,7 +155,7 @@ class AudioProcessor:
             self.speech_start_time = time.time()
             self.silence_duration = 0
             
-            # パディング分のデータを追加
+            # パディング分のデータを追加（test-whisper-vad.pyと同じロジック）
             pad_samples = int(SAMPLE_RATE * self.speech_pad_ms / 1000)
             pad_data = list(self.audio_buffer)[-pad_samples:] if len(self.audio_buffer) >= pad_samples else list(self.audio_buffer)
             self.speech_buffer = pad_data + list(audio_data)
