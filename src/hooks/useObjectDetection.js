@@ -9,7 +9,7 @@ export const useObjectDetection = (onPlayAudio) => {
 
   const connect = useCallback(() => {
     try {
-      const ws = new WebSocket('ws://localhost:8000/ws');
+      const ws = new WebSocket('ws://localhost:8000/ws/detection');
       
       ws.onopen = () => {
         console.log('物体検出サーバーに接続しました');

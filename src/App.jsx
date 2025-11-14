@@ -2,9 +2,9 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import QuizDisplay from './components/QuizDisplay';
 import ScoreBoard from './components/ScoreBoard';
 import ResultScreen from './components/ResultScreen';
-import VoskRecognition from './components/VoskRecognition';
+import WhisperRecognition from './components/WhisperRecognition';
 import { useObjectDetection } from './hooks/useObjectDetection';
-import { useVoskRecognition } from './hooks/useVoskRecognition';
+import { useWhisperRecognition } from './hooks/useWhisperRecognition';
 import { quizData } from './data/quizData';
 
 const App = () => {
@@ -58,18 +58,18 @@ const App = () => {
     }, 2000);
   }, [currentQuestion]);
 
-  // Vosk音声認識
+  // Whisper音声認識
   const {
-    isListening: isVoskListening,
-    recognizedText: voskRecognizedText,
+    isListening: isWhisperListening,
+    recognizedText: whisperRecognizedText,
     recognitionHistory,
-    startListening: startVoskListening,
-    stopListening: stopVoskListening,
-    clearHistory: clearVoskHistory,
-    isSupported: isVoskSupported,
-    isConnected: isVoskConnected,
-    debugInfo: voskDebugInfo
-  } = useVoskRecognition(handleAnswer);
+    startListening: startWhisperListening,
+    stopListening: stopWhisperListening,
+    clearHistory: clearWhisperHistory,
+    isSupported: isWhisperSupported,
+    isConnected: isWhisperConnected,
+    debugInfo: whisperDebugInfo
+  } = useWhisperRecognition(handleAnswer);
 
   // 物体検出からの音声再生トリガー
   const handlePlayAudioTrigger = useCallback(() => {
@@ -115,21 +115,21 @@ const App = () => {
   useEffect(() => {
     if (showFeedback) {
       console.log('フィードバック表示中: 音声認識を一時停止');
-      if (isVoskListening) {
-        stopVoskListening();
+      if (isWhisperListening) {
+        stopWhisperListening();
       }
     } else {
       // フィードバック終了後、少し遅延してから音声認識を再開
       const restartTimer = setTimeout(() => {
-        if (!isVoskListening && isVoskSupported && isVoskConnected) {
+        if (!isWhisperListening && isWhisperSupported && isWhisperConnected) {
           console.log('フィードバック終了: 音声認識を再開');
-          startVoskListening();
+          startWhisperListening();
         }
       }, 500);
       
       return () => clearTimeout(restartTimer);
     }
-  }, [showFeedback, isVoskListening, isVoskSupported, isVoskConnected, startVoskListening, stopVoskListening]);
+  }, [showFeedback, isWhisperListening, isWhisperSupported, isWhisperConnected, startWhisperListening, stopWhisperListening]);
 
   const resetGame = () => {
     setCurrentQuestion(0);
@@ -139,7 +139,7 @@ const App = () => {
     setShowFeedback(false);
     setLastAnswer(null);
     isProcessingRef.current = false;
-    clearVoskHistory();
+    clearWhisperHistory();
   };
 
   if (gameState === 'finished') {
@@ -175,13 +175,13 @@ const App = () => {
             </span>
           </div>
 
-          {/* Vosk音声認識ステータス */}
+          {/* Whisper音声認識ステータス */}
           <div className={`flex items-center gap-2 p-3 rounded-lg transition-colors ${
-            isVoskConnected ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'
+            isWhisperConnected ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50 border border-gray-200'
           }`}>
-            <div className={`w-3 h-3 rounded-full ${isVoskConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></div>
-            <span className={`text-xs font-medium ${isVoskConnected ? 'text-blue-700' : 'text-gray-600'}`}>
-              音声認識: {isVoskConnected ? '接続' : '切断'}
+            <div className={`w-3 h-3 rounded-full ${isWhisperConnected ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'}`}></div>
+            <span className={`text-xs font-medium ${isWhisperConnected ? 'text-purple-700' : 'text-gray-600'}`}>
+              Whisper: {isWhisperConnected ? '接続' : '切断'}
             </span>
           </div>
         </div>
@@ -205,18 +205,18 @@ const App = () => {
           shouldPlayAudio={shouldPlayAudio}
         />
 
-        {/* Vosk音声認識 */}
-        <VoskRecognition
-          isListening={isVoskListening}
-          recognizedText={voskRecognizedText}
+        {/* Whisper音声認識 */}
+        <WhisperRecognition
+          isListening={isWhisperListening}
+          recognizedText={whisperRecognizedText}
           recognitionHistory={recognitionHistory}
           disabled={showFeedback}
-          isSupported={isVoskSupported}
-          isConnected={isVoskConnected}
-          debugInfo={voskDebugInfo}
-          onStart={startVoskListening}
-          onStop={stopVoskListening}
-          onClearHistory={clearVoskHistory}
+          isSupported={isWhisperSupported}
+          isConnected={isWhisperConnected}
+          debugInfo={whisperDebugInfo}
+          onStart={startWhisperListening}
+          onStop={stopWhisperListening}
+          onClearHistory={clearWhisperHistory}
         />
 
         {/* 手動回答ボタン */}
@@ -246,7 +246,7 @@ const App = () => {
         {/* 説明 */}
         <div className="text-center text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-200">
           <p className="mb-1 font-semibold">💡 回答方法</p>
-          <p className="mb-1">🎤 音声: 「まる」「ばつ」と発話（常時認識）</p>
+          <p className="mb-1">🎤 音声: 「まる」「ばつ」と発話（Whisper + VAD認識）</p>
           <p>⌨️ キーボード: <kbd className="px-2 py-1 bg-gray-200 rounded text-xs">O</kbd> = まる、<kbd className="px-2 py-1 bg-gray-200 rounded text-xs">X</kbd> = ばつ</p>
         </div>
       </div>
