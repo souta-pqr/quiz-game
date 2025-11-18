@@ -154,6 +154,18 @@ const App = () => {
   }
 
   const currentQuiz = quizData[currentQuestion];
+  
+  // クイズデータが存在しない場合のガード
+  if (!currentQuiz) {
+    console.error('クイズデータが見つかりません:', currentQuestion);
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+          <p className="text-xl text-gray-700">クイズデータの読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">

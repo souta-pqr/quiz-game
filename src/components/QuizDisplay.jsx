@@ -3,6 +3,15 @@ import { Check, X } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
 
 const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = false }) => {
+  // quizがundefinedの場合のガード
+  if (!quiz) {
+    return (
+      <div className="mb-8 p-6 bg-yellow-50 rounded-xl">
+        <p className="text-center text-gray-600">クイズデータを読み込み中...</p>
+      </div>
+    );
+  }
+  
   const progress = ((currentQuestion + 1) / totalQuestions) * 100;
   const audioSrc = `/audio/question_${quiz.id}.wav`;
   const audioPlayerRef = useRef(null);
