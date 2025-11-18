@@ -46,15 +46,19 @@ const WhisperRecognition = ({
   }
 
   return (
-    <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg mb-6 border-2 border-purple-300 shadow-sm">
+    <div className="bg-gradient-to-r from-red-50 via-white to-green-50 p-4 rounded-xl mb-6 border-4 border-red-400 shadow-lg relative">
+      {/* クリスマス装飾 */}
+      <div className="absolute -top-2 -left-2 text-2xl">🎄</div>
+      <div className="absolute -top-2 -right-2 text-2xl">🎅</div>
+      
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Volume2 className="w-5 h-5 text-gray-700" />
-          <span className="font-semibold text-gray-800">Whisper音声認識（VAD統合）</span>
+          <Volume2 className="w-5 h-5 text-red-700" />
+          <span className="font-bold text-red-800">🎤 Whisper音声認識（VAD統合）</span>
           {isListening && !disabled && (
             <div className="flex items-center gap-1 ml-2">
-              <Zap className="w-4 h-4 text-purple-600 animate-pulse" />
-              <span className="text-xs text-purple-600 font-bold">LIVE</span>
+              <Zap className="w-4 h-4 text-green-600 animate-pulse" />
+              <span className="text-xs text-green-700 font-bold">LIVE</span>
             </div>
           )}
         </div>
@@ -63,14 +67,14 @@ const WhisperRecognition = ({
         <div className="flex items-center gap-2">
           {isListening && !disabled ? (
             <>
-              <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-purple-100 border border-purple-300">
-                <Mic className="w-4 h-4 text-purple-600" />
-                <span className="text-sm font-semibold text-purple-700">認識中</span>
+              <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-green-100 border-2 border-green-500">
+                <Mic className="w-4 h-4 text-green-700" />
+                <span className="text-sm font-bold text-green-800">🎄 認識中</span>
               </div>
               {onStop && (
                 <button
                   onClick={onStop}
-                  className="px-3 py-1 rounded-lg bg-red-100 hover:bg-red-200 transition text-red-700 text-sm font-semibold border border-red-300"
+                  className="px-3 py-1 rounded-lg bg-red-100 hover:bg-red-200 transition text-red-700 text-sm font-semibold border-2 border-red-400"
                 >
                   <MicOff className="w-4 h-4" />
                 </button>
@@ -80,10 +84,10 @@ const WhisperRecognition = ({
             <button
               onClick={onStart}
               disabled={disabled}
-              className={`px-3 py-1 rounded-lg transition text-sm font-semibold border ${
+              className={`px-3 py-1 rounded-lg transition text-sm font-bold border-2 ${
                 disabled 
                   ? 'bg-gray-300 text-gray-600 border-gray-400 cursor-not-allowed' 
-                  : 'bg-purple-500 text-white hover:bg-purple-600 border-purple-600'
+                  : 'bg-gradient-to-r from-green-500 to-red-500 text-white hover:from-green-600 hover:to-red-600 border-green-600'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -97,26 +101,27 @@ const WhisperRecognition = ({
       
       {/* リスニングアニメーション */}
       {isListening && !disabled && (
-        <div className="flex items-center gap-2 mb-3 bg-white p-3 rounded-lg border border-purple-200">
+        <div className="flex items-center gap-2 mb-3 bg-white p-3 rounded-lg border-2 border-green-400">
           <div className="flex gap-1">
-            <div className="w-1 h-3 bg-purple-500 rounded animate-pulse"></div>
-            <div className="w-1 h-4 bg-purple-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
-            <div className="w-1 h-5 bg-purple-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
-            <div className="w-1 h-4 bg-purple-500 rounded animate-pulse" style={{animationDelay: '0.3s'}}></div>
-            <div className="w-1 h-3 bg-purple-500 rounded animate-pulse" style={{animationDelay: '0.4s'}}></div>
+            <div className="w-1 h-3 bg-red-500 rounded animate-pulse"></div>
+            <div className="w-1 h-4 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
+            <div className="w-1 h-5 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
+            <div className="w-1 h-4 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.3s'}}></div>
+            <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.4s'}}></div>
           </div>
-          <span className="text-sm text-purple-700 font-medium">
-            「まる」または「ばつ」と言ってください（Silero VAD有効）
+          <span className="text-sm text-gray-800 font-bold">
+            🎅「まる」または「ばつ」と言ってください（Silero VAD有効）🎄
           </span>
         </div>
       )}
       
       {/* 現在の認識結果表示 */}
       {recognizedText && (
-        <div className="mb-3 p-3 bg-white rounded-lg text-sm border-2 border-purple-300 shadow-sm">
+        <div className="mb-3 p-3 bg-white rounded-lg text-sm border-4 border-green-500 shadow-lg">
           <div className="flex items-center gap-2">
-            <span className="text-purple-600 font-semibold">🎤 Whisper認識:</span>
-            <span className="text-gray-800 font-medium text-lg">{recognizedText}</span>
+            <span className="text-green-700 font-bold">🎤 Whisper認識:</span>
+            <span className="text-gray-800 font-bold text-lg">{recognizedText}</span>
+            <span className="text-xl">🎁</span>
           </div>
         </div>
       )}

@@ -26,27 +26,36 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
 
   return (
     <div className="mb-8">
-      {/* 進行状況バー */}
-      <div className="mb-4">
-        <div className="w-full bg-gray-200 rounded-full h-3">
+      {/* 進行状況バー - クリスマステーマ */}
+      <div className="mb-4 relative">
+        <div className="absolute -left-2 top-0 text-xl">🎄</div>
+        <div className="absolute -right-2 top-0 text-xl">🎄</div>
+        <div className="w-full bg-red-100 rounded-full h-4 border-2 border-red-300">
           <div
-            className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+            className="bg-gradient-to-r from-green-500 to-red-500 h-full rounded-full transition-all duration-500 relative overflow-hidden"
             style={{ width: `${progress}%` }}
-          />
+          >
+            <div className="absolute inset-0 bg-white opacity-30 animate-pulse"></div>
+          </div>
         </div>
-        <p className="text-sm text-gray-600 mt-2">
-          問題 {currentQuestion + 1} / {totalQuestions}
+        <p className="text-sm text-red-700 mt-2 font-semibold text-center">
+          🎅 問題 {currentQuestion + 1} / {totalQuestions} 🎁
         </p>
       </div>
 
-      {/* クイズ問題 */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl mb-4">
-        <p className="text-xl font-semibold text-gray-800 text-center leading-relaxed mb-4">
+      {/* クイズ問題 - クリスマステーマ */}
+      <div className="bg-gradient-to-br from-red-50 via-white to-green-50 p-6 rounded-xl mb-4 border-4 border-double border-red-400 relative shadow-lg">
+        <div className="absolute -top-3 -left-3 text-3xl animate-pulse">⭐</div>
+        <div className="absolute -top-3 -right-3 text-3xl animate-pulse">⭐</div>
+        <div className="absolute -bottom-3 -left-3 text-2xl">🎁</div>
+        <div className="absolute -bottom-3 -right-3 text-2xl">🎁</div>
+        
+        <p className="text-xl font-bold text-gray-800 text-center leading-relaxed mb-4 relative z-10">
           {quiz.question}
         </p>
         
         {/* 音声プレイヤー */}
-        <div className="flex justify-center">
+        <div className="flex justify-center relative z-10">
           <AudioPlayer 
             ref={audioPlayerRef}
             audioSrc={audioSrc} 
@@ -55,25 +64,31 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
         </div>
       </div>
 
-      {/* フィードバック表示 */}
+      {/* フィードバック表示 - クリスマステーマ */}
       {showFeedback && lastAnswer && (
-        <div className={`p-4 rounded-lg mb-4 animate-fade-in ${
-          lastAnswer.isCorrect ? 'bg-green-100' : 'bg-red-100'
+        <div className={`p-5 rounded-xl mb-4 animate-fade-in border-4 shadow-lg ${
+          lastAnswer.isCorrect 
+            ? 'bg-gradient-to-br from-green-100 to-green-200 border-green-500' 
+            : 'bg-gradient-to-br from-red-100 to-red-200 border-red-500'
         }`}>
           <div className="flex items-center gap-2 mb-2">
             {lastAnswer.isCorrect ? (
               <>
-                <Check className="w-6 h-6 text-green-600" />
-                <span className="text-green-800 font-bold">正解!</span>
+                <div className="text-5xl">🎉</div>
+                <Check className="w-8 h-8 text-green-700" />
+                <span className="text-green-900 font-bold text-2xl">正解!</span>
+                <div className="text-3xl ml-2">🎄</div>
               </>
             ) : (
               <>
-                <X className="w-6 h-6 text-red-600" />
-                <span className="text-red-800 font-bold">不正解</span>
+                <div className="text-4xl">😢</div>
+                <X className="w-8 h-8 text-red-700" />
+                <span className="text-red-900 font-bold text-2xl">不正解</span>
+                <div className="text-3xl ml-2">⛄</div>
               </>
             )}
           </div>
-          <p className="text-sm text-gray-700">{quiz.explanation}</p>
+          <p className="text-base text-gray-800 font-medium mt-2">{quiz.explanation}</p>
         </div>
       )}
     </div>
