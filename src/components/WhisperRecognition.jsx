@@ -101,16 +101,16 @@ const WhisperRecognition = ({
       
       {/* リスニングアニメーション */}
       {isListening && !disabled && (
-        <div className="flex items-center gap-2 mb-3 bg-white p-3 rounded-lg border-2 border-green-400">
+        <div className="flex items-center justify-center gap-3 mb-3 bg-white p-4 rounded-xl border-2 border-green-400 shadow-md">
           <div className="flex gap-1">
-            <div className="w-1 h-3 bg-red-500 rounded animate-pulse"></div>
-            <div className="w-1 h-4 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
-            <div className="w-1 h-5 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
-            <div className="w-1 h-4 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.3s'}}></div>
-            <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.4s'}}></div>
+            <div className="w-1.5 h-4 bg-red-500 rounded animate-pulse"></div>
+            <div className="w-1.5 h-6 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
+            <div className="w-1.5 h-8 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
+            <div className="w-1.5 h-6 bg-green-500 rounded animate-pulse" style={{animationDelay: '0.3s'}}></div>
+            <div className="w-1.5 h-4 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.4s'}}></div>
           </div>
-          <span className="text-sm text-gray-800 font-bold">
-            🎅「まる」または「ばつ」と言ってください（Silero VAD有効）🎄
+          <span className="text-base text-gray-800 font-bold">
+            �「まる」または「ばつ」と言ってください
           </span>
         </div>
       )}
@@ -126,15 +126,15 @@ const WhisperRecognition = ({
         </div>
       )}
       
-      {/* デバッグ情報 */}
-      {debugInfo && (
+      {/* デバッグ情報 - コメントアウト */}
+      {/* {debugInfo && (
         <div className="mb-3 p-2 bg-gray-100 rounded text-xs font-mono text-gray-600 border border-gray-300">
           🔍 {debugInfo}
         </div>
-      )}
+      )} */}
       
-      {/* 認識履歴 */}
-      {recognitionHistory.length > 0 && (
+      {/* 認識履歴 - コメントアウト */}
+      {/* {recognitionHistory.length > 0 && (
         <div className="mt-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-600">📝 認識履歴（最新{recognitionHistory.length}件）</span>
@@ -171,10 +171,10 @@ const WhisperRecognition = ({
             ))}
           </div>
         </div>
-      )}
+      )} */}
       
-      {/* ステータス表示 */}
-      {!isListening && recognitionHistory.length === 0 && !disabled && (
+      {/* ステータス表示 - コメントアウト */}
+      {/* {!isListening && recognitionHistory.length === 0 && !disabled && (
         <div className="mt-3 text-xs text-gray-600 bg-white p-3 rounded border border-purple-200">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-purple-500" />
@@ -184,7 +184,7 @@ const WhisperRecognition = ({
             </div>
           </div>
         </div>
-      )}
+      )} */}
       
       {disabled && (
         <div className="mt-3 text-xs text-gray-600 bg-yellow-50 p-2 rounded border border-yellow-300">

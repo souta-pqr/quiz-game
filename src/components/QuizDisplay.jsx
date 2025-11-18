@@ -25,73 +25,137 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
   }, [shouldPlayAudio]);
 
   return (
-    <div className="mb-8">
-      {/* 進行状況バー - クリスマステーマ */}
-      <div className="mb-4 relative">
-        <div className="absolute -left-2 top-0 text-xl">🎄</div>
-        <div className="absolute -right-2 top-0 text-xl">🎄</div>
-        <div className="w-full bg-red-100 rounded-full h-4 border-2 border-red-300">
-          <div
-            className="bg-gradient-to-r from-green-500 to-red-500 h-full rounded-full transition-all duration-500 relative overflow-hidden"
-            style={{ width: `${progress}%` }}
-          >
-            <div className="absolute inset-0 bg-white opacity-30 animate-pulse"></div>
+    <>
+      <div className="mb-8">
+        {/* 進行状況バー - クリスマステーマ */}
+        <div className="mb-4 relative">
+          <div className="absolute -left-2 top-0 text-xl">🎄</div>
+          <div className="absolute -right-2 top-0 text-xl">🎄</div>
+          <div className="w-full bg-red-100 rounded-full h-4 border-2 border-red-300">
+            <div
+              className="bg-gradient-to-r from-green-500 to-red-500 h-full rounded-full transition-all duration-500 relative overflow-hidden"
+              style={{ width: `${progress}%` }}
+            >
+              <div className="absolute inset-0 bg-white opacity-30 animate-pulse"></div>
+            </div>
+          </div>
+          <p className="text-sm text-red-700 mt-2 font-semibold text-center">
+            🎅 問題 {currentQuestion + 1} / {totalQuestions} 🎁
+          </p>
+        </div>
+
+        {/* クイズ問題 - クリスマステーマ */}
+        <div className="bg-gradient-to-br from-red-50 via-white to-green-50 p-6 rounded-xl mb-4 border-4 border-double border-red-400 relative shadow-lg">
+          <div className="absolute -top-3 -left-3 text-3xl animate-pulse">⭐</div>
+          <div className="absolute -top-3 -right-3 text-3xl animate-pulse">⭐</div>
+          <div className="absolute -bottom-3 -left-3 text-2xl">🎁</div>
+          <div className="absolute -bottom-3 -right-3 text-2xl">🎁</div>
+          
+          <p className="text-xl font-bold text-gray-800 text-center leading-relaxed mb-4 relative z-10">
+            {quiz.question}
+          </p>
+          
+          {/* 音声プレイヤー */}
+          <div className="flex justify-center relative z-10">
+            <AudioPlayer 
+              ref={audioPlayerRef}
+              audioSrc={audioSrc} 
+              autoPlay={false} 
+            />
           </div>
         </div>
-        <p className="text-sm text-red-700 mt-2 font-semibold text-center">
-          🎅 問題 {currentQuestion + 1} / {totalQuestions} 🎁
-        </p>
       </div>
 
-      {/* クイズ問題 - クリスマステーマ */}
-      <div className="bg-gradient-to-br from-red-50 via-white to-green-50 p-6 rounded-xl mb-4 border-4 border-double border-red-400 relative shadow-lg">
-        <div className="absolute -top-3 -left-3 text-3xl animate-pulse">⭐</div>
-        <div className="absolute -top-3 -right-3 text-3xl animate-pulse">⭐</div>
-        <div className="absolute -bottom-3 -left-3 text-2xl">🎁</div>
-        <div className="absolute -bottom-3 -right-3 text-2xl">🎁</div>
-        
-        <p className="text-xl font-bold text-gray-800 text-center leading-relaxed mb-4 relative z-10">
-          {quiz.question}
-        </p>
-        
-        {/* 音声プレイヤー */}
-        <div className="flex justify-center relative z-10">
-          <AudioPlayer 
-            ref={audioPlayerRef}
-            audioSrc={audioSrc} 
-            autoPlay={false} 
-          />
-        </div>
-      </div>
-
-      {/* フィードバック表示 - クリスマステーマ */}
+      {/* フィードバック表示 - 画面全体オーバーレイ */}
       {showFeedback && lastAnswer && (
-        <div className={`p-5 rounded-xl mb-4 animate-fade-in border-4 shadow-lg ${
-          lastAnswer.isCorrect 
-            ? 'bg-gradient-to-br from-green-100 to-green-200 border-green-500' 
-            : 'bg-gradient-to-br from-red-100 to-red-200 border-red-500'
-        }`}>
-          <div className="flex items-center gap-2 mb-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in" style={{
+          background: lastAnswer.isCorrect 
+            ? 'rgba(34, 197, 94, 0.95)' 
+            : 'rgba(239, 68, 68, 0.95)'
+        }}>
+          {/* 背景アニメーション */}
+          <div className="absolute inset-0 overflow-hidden">
             {lastAnswer.isCorrect ? (
               <>
-                <div className="text-5xl">🎉</div>
-                <Check className="w-8 h-8 text-green-700" />
-                <span className="text-green-900 font-bold text-2xl">正解!</span>
-                <div className="text-3xl ml-2">🎄</div>
+                <div className="absolute top-10 left-10 text-9xl animate-bounce">🎉</div>
+                <div className="absolute top-10 right-10 text-9xl animate-bounce" style={{animationDelay: '0.1s'}}>🎊</div>
+                <div className="absolute bottom-10 left-10 text-8xl animate-pulse">✨</div>
+                <div className="absolute bottom-10 right-10 text-8xl animate-pulse" style={{animationDelay: '0.2s'}}>⭐</div>
+                <div className="absolute top-1/3 left-1/4 text-7xl animate-bounce" style={{animationDelay: '0.15s'}}>🎄</div>
+                <div className="absolute top-2/3 right-1/4 text-7xl animate-bounce" style={{animationDelay: '0.25s'}}>🎁</div>
               </>
             ) : (
               <>
-                <div className="text-4xl">😢</div>
-                <X className="w-8 h-8 text-red-700" />
-                <span className="text-red-900 font-bold text-2xl">不正解</span>
-                <div className="text-3xl ml-2">⛄</div>
+                <div className="absolute top-10 left-10 text-9xl animate-pulse">😢</div>
+                <div className="absolute top-10 right-10 text-9xl animate-pulse" style={{animationDelay: '0.15s'}}>💧</div>
+                <div className="absolute bottom-10 left-10 text-8xl animate-bounce">⛄</div>
+                <div className="absolute bottom-10 right-10 text-8xl animate-bounce" style={{animationDelay: '0.2s'}}>😭</div>
+                <div className="absolute top-1/3 left-1/4 text-7xl animate-pulse" style={{animationDelay: '0.1s'}}>💔</div>
+                <div className="absolute top-2/3 right-1/4 text-7xl animate-pulse" style={{animationDelay: '0.25s'}}>😔</div>
               </>
             )}
           </div>
-          <p className="text-base text-gray-800 font-medium mt-2">{quiz.explanation}</p>
+          
+          {/* メインコンテンツ */}
+          <div className="relative z-10 max-w-4xl w-full">
+            {/* 巨大な正解/不正解表示 */}
+            {lastAnswer.isCorrect ? (
+              <div className="text-center mb-8 animate-bounce">
+                <div className="flex items-center justify-center gap-6 mb-8">
+                  <div className="text-9xl">🎉</div>
+                  <div className="text-9xl">🎄</div>
+                  <div className="text-9xl">🎊</div>
+                </div>
+                <div className="bg-white rounded-3xl p-16 shadow-2xl transform hover:scale-105 transition-transform">
+                  <div className="flex items-center justify-center gap-8">
+                    <Check className="w-32 h-32 text-green-600" strokeWidth={6} />
+                    <div className="text-9xl font-black text-green-700" style={{
+                      textShadow: '5px 5px 10px rgba(0,0,0,0.3)',
+                      WebkitTextStroke: '4px #15803d',
+                      fontSize: '12rem'
+                    }}>
+                      正解
+                    </div>
+                    <Check className="w-32 h-32 text-green-600" strokeWidth={6} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center mb-8 animate-pulse">
+                <div className="flex items-center justify-center gap-6 mb-8">
+                  <div className="text-9xl">😢</div>
+                  <div className="text-9xl">⛄</div>
+                  <div className="text-9xl">💧</div>
+                </div>
+                <div className="bg-white rounded-3xl p-16 shadow-2xl transform hover:scale-105 transition-transform">
+                  <div className="flex items-center justify-center gap-8">
+                    <X className="w-32 h-32 text-red-600" strokeWidth={6} />
+                    <div className="text-9xl font-black text-red-700 whitespace-nowrap" style={{
+                      textShadow: '5px 5px 10px rgba(0,0,0,0.3)',
+                      WebkitTextStroke: '4px #991b1b',
+                      fontSize: '10rem'
+                    }}>
+                      不正解
+                    </div>
+                    <X className="w-32 h-32 text-red-600" strokeWidth={6} />
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* 解説 */}
+            <div className="bg-white rounded-3xl p-8 shadow-2xl border-8 border-yellow-400">
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <div className="text-4xl">📝</div>
+                <p className="text-4xl font-black text-gray-800">解説</p>
+                <div className="text-4xl">📝</div>
+              </div>
+              <p className="text-3xl text-gray-900 font-bold leading-relaxed">{quiz.explanation}</p>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
