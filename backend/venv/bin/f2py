@@ -1,4 +1,4 @@
-#!/home/souta-pqr/work/quiz-game/backend/venv/bin/python3
+#!/home/fujielab-raspi5/work/quiz-game/backend/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

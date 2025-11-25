@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Parakeet-TDT (日本語版) + Silero VADを統合したバックエンドサーバー
+Whisper + Silero VADを統合したバックエンドサーバー
 """
 
 import asyncio
@@ -9,24 +9,16 @@ import cv2
 import json
 import time
 import os
+import wave
 import numpy as np
 import torch
+import whisper
 from typing import Set, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
-import tempfile
-import soundfile as sf
-
-# NeMo ASRのインポート
-try:
-    import nemo.collections.asr as nemo_asr
-    NEMO_AVAILABLE = True
-except ImportError:
-    NEMO_AVAILABLE = False
-    print("⚠️ NeMo Toolkitがインストールされていません")
-    print("pip install nemo_toolkit[asr] を実行してください")
+import io
 
 # グローバル変数
 active_connections: Set[WebSocket] = set()
@@ -37,46 +29,33 @@ person_detected_notified = False
 stable_detection_count = 0
 STABLE_DETECTION_THRESHOLD = 5
 
-# Parakeet + VAD関連
-asr_model = None
+# Whisper + VAD関連
+whisper_model = None
 vad_model = None
 SAMPLE_RATE = 16000
 
 # WebSocket接続ごとに音声バッファを保持
 audio_buffers = {}
+vad_states = {}
 
-def initialize_parakeet():
-    """Parakeet-TDT日本語モデルを初期化"""
-    global asr_model
-    
-    if not NEMO_AVAILABLE:
-        print("✗ NeMo Toolkitが利用できません")
-        return
+def initialize_whisper():
+    """Whisperモデルを初期化"""
+    global whisper_model
     
     try:
-        # 日本語対応Parakeet-TDTモデルをロード
-        model_name = "nvidia/parakeet-tdt_ctc-0.6b-ja"
-        print(f"Parakeet-TDT日本語モデルをダウンロード・初期化中: {model_name}")
-        print("⚡ 日本語特化モデル（0.6Bパラメータ）")
-        
-        asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
-        
-        # 評価モードに設定
-        asr_model.eval()
+        # 小さいモデルから始める（精度とスピードのバランス）
+        model_name = "base"  # tiny, base, small, medium, large から選択
+        print(f"Whisperモデルをダウンロード・初期化中: {model_name}")
+        whisper_model = whisper.load_model(model_name)
+        print(f"✓ Whisperモデル '{model_name}' を初期化しました")
         
         # GPUが利用可能か確認
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"✓ 使用デバイス: {device}")
         
-        if device == "cuda":
-            asr_model = asr_model.to('cuda')
-        
-        print(f"✓ Parakeet-TDT日本語モデル '{model_name}' を初期化しました")
-        
     except Exception as e:
-        print(f"✗ Parakeet-TDTモデルの初期化に失敗: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"✗ Whisperモデルの初期化に失敗: {e}")
+        print("pip install openai-whisper を実行してください")
 
 def initialize_vad():
     """Silero VADモデルを初期化"""
@@ -84,6 +63,7 @@ def initialize_vad():
     
     try:
         print("Silero VADモデルを初期化中...")
+        # Silero VADモデルをダウンロード
         vad_model, utils = torch.hub.load(
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
@@ -94,50 +74,84 @@ def initialize_vad():
         
     except Exception as e:
         print(f"⚠️ Silero VADの初期化に失敗: {e}")
+        print("VADなしで動作します（音声認識精度が低下する可能性があります）")
 
 class AudioProcessor:
-    """音声処理クラス（VAD + Parakeet-TDT日本語版）
+    """音声処理クラス（VAD + Whisper）
     
-    512サンプルごとにVAD処理し、音声区間を検出したらParakeet-TDTで認識
+    フロントエンドから受信した音声データを512サンプルごとに分割してVAD処理
+    - フロントエンドから約85ms(~1365サンプル)のチャンクを受信
+    - 512サンプル（32ms @ 16kHz）ごとに分割してVAD処理
+    - 音声区間を検出したら蓄積し、無音になったらWhisperで認識
     """
     
     def __init__(self, connection_id: str):
         self.connection_id = connection_id
         self.sample_rate = SAMPLE_RATE
-        self.audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))
+        self.audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))  # 最大10秒分のバッファ
         self.speech_buffer = []
         self.is_speech = False
         self.speech_start_time = None
         self.silence_duration = 0
-        self.vad_threshold = 0.5
-        self.speech_pad_ms = 300
-        self.min_speech_duration = 0.3
-        self.max_speech_duration = 10.0
-        self.vad_chunk_size = 512
-        self.pending_samples = np.array([], dtype=np.float32)
+        self.vad_threshold = 0.5  # VAD閾値
+        self.speech_pad_ms = 300  # 音声前後のパディング（ミリ秒）
+        self.min_speech_duration = 0.3  # 最小音声長（秒）
+        self.max_speech_duration = 10.0  # 最大音声長（秒）
+        self.vad_chunk_size = 512  # VADが期待するサンプル数（16kHzで32ms）
+        self.pending_samples = np.array([], dtype=np.float32)  # 次回処理用の余りサンプル
         
         print(f"✓ AudioProcessor初期化: {connection_id}")
         print(f"  VAD閾値: {self.vad_threshold}")
+        print(f"  VADチャンクサイズ: {self.vad_chunk_size}サンプル（{self.vad_chunk_size/SAMPLE_RATE*1000:.1f}ms）")
     
     def process_audio_chunk(self, audio_data: np.ndarray) -> Optional[dict]:
-        """音声チャンクを512サンプルごとに分割してVAD処理"""
-        if vad_model is None or asr_model is None:
+        """
+        音声チャンクを512サンプルごとに分割してVAD処理
+        
+        Args:
+            audio_data: 16kHz, float32の音声データ
+            
+        Returns:
+            認識結果のdict、またはNone
+        """
+        if vad_model is None or whisper_model is None:
             return None
         
+        # 音声データの振幅チェック（最初の10回のみ）
+        if not hasattr(self, '_amplitude_check_count'):
+            self._amplitude_check_count = 0
+        
+        if self._amplitude_check_count < 10:
+            max_amp = np.abs(audio_data).max()
+            mean_amp = np.abs(audio_data).mean()
+            print(f"🎚️ 音声振幅 #{self._amplitude_check_count + 1}: max={max_amp:.4f}, mean={mean_amp:.4f}, samples={len(audio_data)}")
+            self._amplitude_check_count += 1
+        
+        # バッファに追加
         self.audio_buffer.extend(audio_data)
         
+        # 前回の余りと今回のデータを結合
         combined_data = np.concatenate([self.pending_samples, audio_data])
+        
+        # 512サンプルごとに分割して処理
         num_full_chunks = len(combined_data) // self.vad_chunk_size
+        
+        if not hasattr(self, '_chunk_split_logged'):
+            print(f"📦 受信データ: {len(audio_data)}サンプル + 余り{len(self.pending_samples)}サンプル = {len(combined_data)}サンプル")
+            print(f"📦 {num_full_chunks}個の{self.vad_chunk_size}サンプルチャンクに分割")
+            self._chunk_split_logged = True
         
         for i in range(num_full_chunks):
             start_idx = i * self.vad_chunk_size
             end_idx = start_idx + self.vad_chunk_size
             chunk = combined_data[start_idx:end_idx]
             
+            # VAD処理
             result = self._process_vad_chunk(chunk)
             if result:
                 return result
         
+        # 余りを保存
         remaining_start = num_full_chunks * self.vad_chunk_size
         self.pending_samples = combined_data[remaining_start:]
         
@@ -145,41 +159,58 @@ class AudioProcessor:
     
     def _process_vad_chunk(self, chunk: np.ndarray) -> Optional[dict]:
         """512サンプルのチャンクに対してVAD処理"""
+        # PyTorchテンソルに変換
         audio_tensor = torch.from_numpy(chunk).float()
         
+        # VADで音声区間を検出
         try:
             speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         except Exception as e:
             print(f"❌ VADエラー: {e}")
+            print(f"   チャンクサイズ: {len(chunk)}サンプル")
             return None
         
         is_speech_now = speech_prob > self.vad_threshold
         
+        # デバッグログ（最初の50チャンクのみ、その後は100チャンクごと）
+        if not hasattr(self, '_vad_log_count'):
+            self._vad_log_count = 0
+        self._vad_log_count += 1
+        
+        if self._vad_log_count <= 50 or self._vad_log_count % 100 == 0:
+            print(f"🔊 VAD #{self._vad_log_count}: prob={speech_prob:.3f} ({'音声' if is_speech_now else '無音'})")
+        
+        # 音声区間の開始
         if is_speech_now and not self.is_speech:
             self.is_speech = True
             self.speech_start_time = time.time()
             self.silence_duration = 0
             
+            # パディング分のデータを追加
             pad_samples = int(SAMPLE_RATE * self.speech_pad_ms / 1000)
             pad_data = list(self.audio_buffer)[-pad_samples:] if len(self.audio_buffer) >= pad_samples else list(self.audio_buffer)
             self.speech_buffer = pad_data + list(chunk)
             
             print(f"🎤 音声開始検出 (信頼度: {speech_prob:.2f})")
         
+        # 音声区間の継続
         elif is_speech_now and self.is_speech:
             self.speech_buffer.extend(chunk)
             self.silence_duration = 0
             
+            # 最大音声長チェック
             duration = len(self.speech_buffer) / SAMPLE_RATE
             if duration > self.max_speech_duration:
                 print(f"⏱️ 最大音声長到達 ({duration:.1f}秒)")
                 return self._process_speech_buffer()
         
+        # 音声区間の終了候補
         elif not is_speech_now and self.is_speech:
             self.speech_buffer.extend(chunk)
             self.silence_duration += len(chunk) / SAMPLE_RATE
             
-            if self.silence_duration > 0.5:
+            # 無音が一定時間続いたら音声区間終了
+            if self.silence_duration > 0.5:  # 500ms無音
                 duration = len(self.speech_buffer) / SAMPLE_RATE
                 
                 if duration >= self.min_speech_duration:
@@ -193,8 +224,8 @@ class AudioProcessor:
         return None
     
     def _process_speech_buffer(self) -> Optional[dict]:
-        """音声バッファをParakeet-TDT日本語版で認識"""
-        if not self.speech_buffer or asr_model is None:
+        """音声バッファをWhisperで認識"""
+        if not self.speech_buffer or whisper_model is None:
             self.is_speech = False
             self.speech_buffer = []
             return None
@@ -208,34 +239,18 @@ class AudioProcessor:
             if max_val > 0:
                 audio_array = audio_array / max_val
             
-            duration = len(audio_array)/SAMPLE_RATE
-            print(f"🔄 Parakeet-TDT認識開始... (長さ: {duration:.1f}秒)")
-            start_time = time.time()
+            print(f"🔄 Whisper認識開始... (長さ: {len(audio_array)/SAMPLE_RATE:.1f}秒)")
             
-            # 一時ファイルに保存（NeMoは音声ファイルを要求する）
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-                sf.write(tmp_path, audio_array, SAMPLE_RATE)
+            # Whisperで認識
+            result = whisper_model.transcribe(
+                audio_array,
+                language='ja',
+                task='transcribe',
+                fp16=False,
+                verbose=False
+            )
             
-            try:
-                # Parakeet-TDT日本語版で認識
-                # transcribe()はリストを返す
-                output = asr_model.transcribe([tmp_path])
-                
-                elapsed = time.time() - start_time
-                print(f"⏱️ 認識完了: {elapsed:.1f}秒 (実時間比: {elapsed/duration:.1f}x)")
-                
-                # 結果を取得
-                if output and len(output) > 0:
-                    # output[0]はHypothesisオブジェクト
-                    text = output[0].text.strip() if hasattr(output[0], 'text') else str(output[0]).strip()
-                else:
-                    text = ""
-                
-            finally:
-                # 一時ファイルを削除
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+            text = result['text'].strip()
             
             if text:
                 print(f"✓ 認識結果: '{text}'")
@@ -249,6 +264,7 @@ class AudioProcessor:
                     answer = False
                     print("  → × ばつ として認識")
                 
+                # バッファをクリア
                 self.is_speech = False
                 self.speech_buffer = []
                 
@@ -262,10 +278,11 @@ class AudioProcessor:
                 print("⚠️ 認識結果が空です")
         
         except Exception as e:
-            print(f"❌ Parakeet-TDT認識エラー: {e}")
+            print(f"❌ Whisper認識エラー: {e}")
             import traceback
             traceback.print_exc()
         
+        # バッファをクリア
         self.is_speech = False
         self.speech_buffer = []
         return None
@@ -275,7 +292,7 @@ async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
     initialize_detector()
     initialize_vad()
-    initialize_parakeet()
+    initialize_whisper()
     yield
     print("サーバーをシャットダウンしています...")
 
@@ -303,13 +320,17 @@ def initialize_detector():
             print(f"⚠️ 物体検出モデルが見つかりません: {model_path}")
             return
         
+        input_shape = 320
+        score_th = 0.5
+        nms_th = 0.6
+        
         detector = NanoDetONNX(
             model_path=model_path,
-            input_shape=320,
-            class_score_th=0.5,
-            nms_th=0.6,
+            input_shape=input_shape,
+            class_score_th=score_th,
+            nms_th=nms_th,
         )
-        print(f"✓ 物体検出モデルを初期化しました")
+        print(f"✓ 物体検出モデルを初期化しました: {model_path}")
     except Exception as e:
         print(f"⚠️ 物体検出の初期化をスキップ: {e}")
 
@@ -320,6 +341,7 @@ async def broadcast_message(message: dict):
         try:
             await connection.send_json(message)
         except Exception as e:
+            print(f"送信エラー: {e}")
             disconnected.add(connection)
     
     active_connections.difference_update(disconnected)
@@ -329,6 +351,7 @@ async def run_detection():
     global detection_running, last_person_detected_time, person_detected_notified, stable_detection_count
     
     if detector is None:
+        print("物体検出モデルが初期化されていません")
         return
     
     cap = cv2.VideoCapture(0)
@@ -340,6 +363,15 @@ async def run_detection():
         return
     
     print("物体検出を開始しました")
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    coco_classes_path = os.path.join(script_dir, 'coco_classes.txt')
+    
+    coco_classes = []
+    if os.path.exists(coco_classes_path):
+        with open(coco_classes_path, 'rt') as f:
+            coco_classes = f.read().rstrip('\n').split('\n')
+    
     person_class_id = 0
     
     try:
@@ -351,8 +383,23 @@ async def run_detection():
             
             bboxes, scores, class_ids = detector.inference(frame)
             
-            person_count = sum(1 for i, cid in enumerate(class_ids) if cid == person_class_id and scores[i] >= 0.6)
-            person_detected = person_count > 0
+            person_detected = False
+            person_count = 0
+            high_confidence_persons = []
+            
+            for i, class_id in enumerate(class_ids):
+                if class_id == person_class_id:
+                    if scores[i] >= 0.6:
+                        person_count += 1
+                        high_confidence_persons.append({
+                            'score': scores[i],
+                            'bbox': bboxes[i]
+                        })
+            
+            if person_count > 0:
+                person_detected = True
+                scores_str = ', '.join([f"{p['score']:.2f}" for p in high_confidence_persons])
+                print(f"検出: {person_count}人 (スコア: [{scores_str}])")
             
             current_time = time.time()
             
@@ -363,7 +410,7 @@ async def run_detection():
                     if last_person_detected_time is None:
                         last_person_detected_time = current_time
                         person_detected_notified = False
-                        print(f"✓ 人を安定検出（{person_count}人）")
+                        print(f"✓ 人を安定検出しました（{person_count}人）")
                         
                         await broadcast_message({
                             "type": "person_detected",
@@ -373,7 +420,7 @@ async def run_detection():
                     
                     elif not person_detected_notified and (current_time - last_person_detected_time) >= 3.0:
                         person_detected_notified = True
-                        print("✓ 3秒経過 - 音声再生をトリガー")
+                        print("✓ 3秒経過 - 音声再生をトリガーします")
                         
                         await broadcast_message({
                             "type": "play_audio",
@@ -398,29 +445,32 @@ async def run_detection():
 @app.get("/")
 async def root():
     return {
-        "message": "Object Detection + Parakeet-TDT (日本語) + Silero VAD Server",
+        "message": "Object Detection + Whisper + Silero VAD Server",
         "websocket_endpoints": {
             "detection": "/ws/detection",
             "speech": "/ws/speech"
         },
-        "parakeet_ready": asr_model is not None,
+        "whisper_ready": whisper_model is not None,
         "vad_ready": vad_model is not None,
         "detector_ready": detector is not None
     }
 
 @app.get("/status")
 async def status():
+    """サーバーのステータスを返す"""
     return {
         "detection_running": detection_running,
         "active_connections": len(active_connections),
         "person_detected": last_person_detected_time is not None,
-        "parakeet_model_loaded": asr_model is not None,
+        "stable_detection_count": stable_detection_count,
+        "whisper_model_loaded": whisper_model is not None,
         "vad_model_loaded": vad_model is not None,
         "detector_loaded": detector is not None
     }
 
 @app.websocket("/ws/detection")
 async def websocket_detection(websocket: WebSocket):
+    """物体検出用WebSocketエンドポイント"""
     global detection_running
     
     await websocket.accept()
@@ -428,6 +478,7 @@ async def websocket_detection(websocket: WebSocket):
     connection_id = str(id(websocket))
     print(f"🔌 物体検出WebSocket接続: {connection_id}")
     
+    # 物体検出を開始
     if detector is not None and not detection_running:
         detection_running = True
         asyncio.create_task(run_detection())
@@ -438,6 +489,7 @@ async def websocket_detection(websocket: WebSocket):
             
             if "text" in data:
                 message = json.loads(data["text"])
+                
                 if message.get("type") == "ping":
                     await websocket.send_json({"type": "pong"})
     
@@ -451,36 +503,77 @@ async def websocket_detection(websocket: WebSocket):
         print(f"物体検出WebSocketエラー: {e}")
         active_connections.discard(websocket)
 
+
 @app.websocket("/ws/speech")
 async def websocket_speech(websocket: WebSocket):
+    """音声認識用WebSocketエンドポイント"""
     await websocket.accept()
     connection_id = str(id(websocket))
     print(f"🎤 音声認識WebSocket接続: {connection_id}")
     
+    # AudioProcessorを作成
     audio_processor = AudioProcessor(connection_id)
     audio_buffers[connection_id] = audio_processor
     
     try:
+        chunk_count = 0
+        loop_count = 0
+        
+        print(f"🔄 メッセージ受信ループ開始")
+        
         while True:
+            loop_count += 1
+            
+            # 最初の10回だけループカウントをログ
+            if loop_count <= 10:
+                print(f"🔁 ループ#{loop_count}: メッセージ待機中...")
+            
             try:
+                # テキストまたはバイナリデータを受信
                 message = await websocket.receive()
                 
+                # 最初の10回はメッセージタイプをログ
+                if loop_count <= 10:
+                    print(f"📨 ループ#{loop_count}: メッセージ受信 - keys={list(message.keys())}")
+                
+                # デバッグ: 最初のメッセージの内容を詳細にログ
+                if chunk_count == 0:
+                    print(f"🔍 最初のメッセージ: type={type(message)}, keys={message.keys()}")
+                
+                # テキストメッセージ（JSON）
                 if "text" in message:
                     try:
                         data = json.loads(message["text"])
+                        
                         if data.get("type") == "ping":
                             await websocket.send_json({"type": "pong"})
+                            print(f"🏓 Pong送信")
                     except json.JSONDecodeError:
-                        pass
+                        print(f"⚠️ JSON解析エラー: {message['text'][:100]}")
                 
+                # バイナリメッセージ（音声データ）
                 elif "bytes" in message:
                     audio_bytes = message["bytes"]
+                    chunk_count += 1
                     
-                    if asr_model is not None and vad_model is not None:
+                    if chunk_count == 1:
+                        print(f"✓ 初回音声データ受信: {len(audio_bytes)} バイト")
+                    elif chunk_count <= 5 or chunk_count % 20 == 0:
+                        print(f"📦 音声データ受信: {len(audio_bytes)} バイト (チャンク#{chunk_count})")
+                    
+                    if whisper_model is not None and vad_model is not None:
                         try:
+                            # bytesをnumpy配列に変換（16-bit PCM）
                             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+                            
+                            # float32に変換して正規化（-1.0 ~ 1.0）
                             audio_float = audio_np.astype(np.float32) / 32768.0
                             
+                            # 最初の5回だけ配列情報をログ
+                            if chunk_count <= 5:
+                                print(f"🎵 音声データ変換: {len(audio_np)} サンプル -> {len(audio_float)} float32")
+                            
+                            # VAD + Whisper処理
                             result = audio_processor.process_audio_chunk(audio_float)
                             
                             if result:
@@ -489,25 +582,49 @@ async def websocket_speech(websocket: WebSocket):
                         
                         except Exception as e:
                             print(f"❌ 音声処理エラー: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            
                             await websocket.send_json({
                                 "type": "speech_error",
                                 "error": str(e)
                             })
+                    else:
+                        if chunk_count == 1:
+                            print("⚠️ Whisper/VADモデルが初期化されていません")
                 
+                # WebSocket切断メッセージ
                 elif "type" in message and message["type"] == "websocket.disconnect":
+                    print(f"🔌 クライアントから切断要求: {connection_id}")
                     break
+                
+                # その他
+                else:
+                    if chunk_count < 5:  # 最初の5回だけログ
+                        print(f"⚠️ 不明なメッセージ形式: {message.keys()}")
+                        if "type" in message:
+                            print(f"   メッセージタイプ: {message.get('type')}")
             
             except Exception as e:
-                if "disconnect" in str(e).lower():
+                # receive()内のエラー
+                error_msg = str(e)
+                if "disconnect" in error_msg.lower():
+                    print(f"🔌 WebSocket切断検出: {connection_id}")
                     break
                 else:
-                    print(f"❌ メッセージ受信エラー: {e}")
+                    print(f"❌ メッセージ受信エラー (ループ#{loop_count}): {e}")
+                    import traceback
+                    traceback.print_exc()
                     break
+        
+        print(f"🔚 メッセージ受信ループ終了 (ループ回数: {loop_count}, チャンク数: {chunk_count})")
     
     except WebSocketDisconnect:
         print(f"🎤 音声認識WebSocket切断: {connection_id}")
     except Exception as e:
         print(f"音声認識WebSocketエラー: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]
