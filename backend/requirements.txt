@@ -9,14 +9,12 @@ opencv-python==4.10.0.84
 numpy==1.26.4
 onnxruntime==1.20.1
 
-# 音声認識（Parakeet-TDT）
-nemo_toolkit[asr]==2.0.0
+# 音声認識（Vosk軽量版 - 約50MB）
+vosk==0.3.45
+
+# VAD（Silero）
 torch==2.5.1
-torchaudio==2.5.1
-scipy==1.14.1
+# Silero VADはtorch.hub.loadで自動ダウンロードされる
 
-# VAD
-# Silero VADはtorch.hub.loadで自動ダウンロードされるため不要
-
-# 音声入出力
-pyaudio==0.2.14
+# 音声入出力（オプション、ローカルテスト用）
+# pyaudio==0.2.14
