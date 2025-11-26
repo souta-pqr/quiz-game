@@ -93,7 +93,7 @@ def detect_answer_keyword(text: str) -> Optional[bool]:
     maru_keywords = [
         'まる', 'マル', '丸', '○', 
         'まぁる', 'まーる', 'まるまる',
-        'maru', 'まるっ', 'まるい'
+        'maru', 'まるっ', 'まるい', 'ある'
     ]
     for keyword in maru_keywords:
         if keyword in text_lower or keyword in text:
@@ -103,7 +103,7 @@ def detect_answer_keyword(text: str) -> Optional[bool]:
     batsu_keywords = [
         'ばつ', 'バツ', 'ペケ', '×', 
         'ばっ', 'ばっつ', 'ばつばつ',
-        'batsu', 'ばつっ'
+        'batsu', 'ばつっ', '月'
     ]
     for keyword in batsu_keywords:
         if keyword in text_lower or keyword in text:

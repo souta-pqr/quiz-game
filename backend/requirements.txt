@@ -12,9 +12,9 @@ onnxruntime==1.20.1
 # 音声認識（Vosk軽量版 - 約50MB）
 vosk==0.3.45
 
-# VAD（Silero）
+# VAD（Silero）- torchaudioが必要
 torch==2.5.1
-# Silero VADはtorch.hub.loadで自動ダウンロードされる
+torchaudio==2.5.1
 
 # 音声入出力（オプション、ローカルテスト用）
-# pyaudio==0.2.14
+pyaudio==0.2.14
