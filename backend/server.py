@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Parakeet-TDT (日本語版) + Silero VADを統合したバックエンドサーバー
+超軽量キーワードスポッティングサーバー
+Vosk小モデル + VADで「まる」「ばつ」のみを高速検出
 """
 
 import asyncio
@@ -16,17 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
-import tempfile
-import soundfile as sf
-
-# NeMo ASRのインポート
-try:
-    import nemo.collections.asr as nemo_asr
-    NEMO_AVAILABLE = True
-except ImportError:
-    NEMO_AVAILABLE = False
-    print("⚠️ NeMo Toolkitがインストールされていません")
-    print("pip install nemo_toolkit[asr] を実行してください")
+from vosk import Model, KaldiRecognizer
 
 # グローバル変数
 active_connections: Set[WebSocket] = set()
@@ -37,44 +28,36 @@ person_detected_notified = False
 stable_detection_count = 0
 STABLE_DETECTION_THRESHOLD = 5
 
-# Parakeet + VAD関連
-asr_model = None
+# Vosk + VAD関連
+vosk_model = None
 vad_model = None
 SAMPLE_RATE = 16000
 
 # WebSocket接続ごとに音声バッファを保持
 audio_buffers = {}
 
-def initialize_parakeet():
-    """Parakeet-TDT日本語モデルを初期化"""
-    global asr_model
-    
-    if not NEMO_AVAILABLE:
-        print("✗ NeMo Toolkitが利用できません")
-        return
+def initialize_vosk():
+    """Voskの小モデルを初期化"""
+    global vosk_model
     
     try:
-        # 日本語対応Parakeet-TDTモデルをロード
-        model_name = "nvidia/parakeet-tdt_ctc-0.6b-ja"
-        print(f"Parakeet-TDT日本語モデルをダウンロード・初期化中: {model_name}")
-        print("⚡ 日本語特化モデル（0.6Bパラメータ）")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(script_dir, 'vosk-model-small-ja-0.22')
         
-        asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+        if not os.path.exists(model_path):
+            print(f"⚠️ Voskモデルが見つかりません: {model_path}")
+            print("以下のコマンドでダウンロードしてください:")
+            print("  cd backend")
+            print("  wget https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
+            print("  unzip vosk-model-small-ja-0.22.zip")
+            return
         
-        # 評価モードに設定
-        asr_model.eval()
-        
-        # GPUが利用可能か確認
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"✓ 使用デバイス: {device}")
-        
-        if device == "cuda":
-            asr_model = asr_model.to('cuda')
-        
-        print(f"✓ Parakeet-TDT日本語モデル '{model_name}' を初期化しました")
+        print(f"Voskモデルを初期化中: {model_path}")
+        vosk_model = Model(model_path)
+        print(f"✓ Vosk小モデルを初期化しました（約50MB、軽量版）")
         
     except Exception as e:
-        print(f"✗ Parakeet-TDTモデルの初期化に失敗: {e}")
+        print(f"✗ Voskモデルの初期化に失敗: {e}")
         import traceback
         traceback.print_exc()
 
@@ -95,10 +78,47 @@ def initialize_vad():
     except Exception as e:
         print(f"⚠️ Silero VADの初期化に失敗: {e}")
 
-class AudioProcessor:
-    """音声処理クラス（VAD + Parakeet-TDT日本語版）
+def detect_answer_keyword(text: str) -> Optional[bool]:
+    """テキストから「まる」「ばつ」を高速検出
     
-    512サンプルごとにVAD処理し、音声区間を検出したらParakeet-TDTで認識
+    Args:
+        text: 認識されたテキスト
+        
+    Returns:
+        True: まる, False: ばつ, None: どちらでもない
+    """
+    text_lower = text.lower().replace(' ', '')
+    
+    # 「まる」系のキーワード（より柔軟に）
+    maru_keywords = [
+        'まる', 'マル', '丸', '○', 
+        'まぁる', 'まーる', 'まるまる',
+        'maru', 'まるっ', 'まるい'
+    ]
+    for keyword in maru_keywords:
+        if keyword in text_lower or keyword in text:
+            return True
+    
+    # 「ばつ」系のキーワード（より柔軟に）
+    batsu_keywords = [
+        'ばつ', 'バツ', 'ペケ', '×', 
+        'ばっ', 'ばっつ', 'ばつばつ',
+        'batsu', 'ばつっ'
+    ]
+    for keyword in batsu_keywords:
+        if keyword in text_lower or keyword in text:
+            return False
+    
+    return None
+
+class FastKeywordSpotter:
+    """超高速キーワードスポッティング
+    
+    VAD + Vosk小モデルで「まる」「ばつ」のみを検出
+    レイテンシを最小化するための最適化：
+    - 部分認識結果も活用
+    - バッファサイズを最小化
+    - キーワード検出後、即座に応答
     """
     
     def __init__(self, connection_id: str):
@@ -107,21 +127,32 @@ class AudioProcessor:
         self.audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))
         self.speech_buffer = []
         self.is_speech = False
-        self.speech_start_time = None
         self.silence_duration = 0
-        self.vad_threshold = 0.5
-        self.speech_pad_ms = 300
-        self.min_speech_duration = 0.3
-        self.max_speech_duration = 10.0
+        
+        # VAD設定を高速化のために調整
+        self.vad_threshold = 0.4  # 少し低めで反応を速く
+        self.speech_pad_ms = 200  # パディングを短く
+        self.min_speech_duration = 0.25  # 最小音声を短く
+        self.max_speech_duration = 3.0   # 最大音声を短く
         self.vad_chunk_size = 512
         self.pending_samples = np.array([], dtype=np.float32)
         
-        print(f"✓ AudioProcessor初期化: {connection_id}")
-        print(f"  VAD閾値: {self.vad_threshold}")
+        # Vosk認識器を初期化
+        if vosk_model is not None:
+            self.recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+            self.recognizer.SetWords(True)
+            # 部分認識結果も取得するように設定
+            self.recognizer.SetPartialWords(True)
+        else:
+            self.recognizer = None
+        
+        print(f"✓ FastKeywordSpotter初期化: {connection_id}")
+        print(f"  VAD閾値: {self.vad_threshold} (低め=高感度)")
+        print(f"  最小音声長: {self.min_speech_duration}秒")
     
     def process_audio_chunk(self, audio_data: np.ndarray) -> Optional[dict]:
-        """音声チャンクを512サンプルごとに分割してVAD処理"""
-        if vad_model is None or asr_model is None:
+        """音声チャンクを処理"""
+        if vad_model is None or self.recognizer is None:
             return None
         
         self.audio_buffer.extend(audio_data)
@@ -144,7 +175,7 @@ class AudioProcessor:
         return None
     
     def _process_vad_chunk(self, chunk: np.ndarray) -> Optional[dict]:
-        """512サンプルのチャンクに対してVAD処理"""
+        """VADチャンクを処理"""
         audio_tensor = torch.from_numpy(chunk).float()
         
         try:
@@ -155,99 +186,111 @@ class AudioProcessor:
         
         is_speech_now = speech_prob > self.vad_threshold
         
+        # 音声開始
         if is_speech_now and not self.is_speech:
             self.is_speech = True
-            self.speech_start_time = time.time()
             self.silence_duration = 0
             
             pad_samples = int(SAMPLE_RATE * self.speech_pad_ms / 1000)
             pad_data = list(self.audio_buffer)[-pad_samples:] if len(self.audio_buffer) >= pad_samples else list(self.audio_buffer)
             self.speech_buffer = pad_data + list(chunk)
             
-            print(f"🎤 音声開始検出 (信頼度: {speech_prob:.2f})")
+            if self.recognizer:
+                self.recognizer.Reset()
+            
+            print(f"🎤 音声検出 (信頼度: {speech_prob:.2f})")
         
+        # 音声継続中 - リアルタイムで認識
         elif is_speech_now and self.is_speech:
             self.speech_buffer.extend(chunk)
             self.silence_duration = 0
             
+            # 認識器にデータを送る
+            audio_int16 = (np.array(chunk) * 32767).astype(np.int16)
+            audio_bytes = audio_int16.tobytes()
+            
+            # 部分認識結果をチェック
+            if self.recognizer.AcceptWaveform(audio_bytes):
+                result = json.loads(self.recognizer.Result())
+                text = result.get('text', '').strip()
+                
+                if text:
+                    answer = detect_answer_keyword(text)
+                    if answer is not None:
+                        print(f"✓ キーワード即座検出: '{text}'")
+                        self.is_speech = False
+                        self.speech_buffer = []
+                        
+                        return {
+                            'type': 'speech_result',
+                            'text': text,
+                            'answer': answer,
+                            'is_final': True
+                        }
+            else:
+                # 部分認識結果もチェック（さらに高速化）
+                partial_result = json.loads(self.recognizer.PartialResult())
+                partial_text = partial_result.get('partial', '').strip()
+                
+                if partial_text:
+                    answer = detect_answer_keyword(partial_text)
+                    if answer is not None:
+                        # 部分結果でもキーワードを検出したら即座に応答
+                        print(f"✓ キーワード部分検出: '{partial_text}'")
+                        self.is_speech = False
+                        self.speech_buffer = []
+                        
+                        # 最終結果として送る
+                        final_result = json.loads(self.recognizer.FinalResult())
+                        
+                        return {
+                            'type': 'speech_result',
+                            'text': partial_text,
+                            'answer': answer,
+                            'is_final': True
+                        }
+            
             duration = len(self.speech_buffer) / SAMPLE_RATE
             if duration > self.max_speech_duration:
-                print(f"⏱️ 最大音声長到達 ({duration:.1f}秒)")
-                return self._process_speech_buffer()
+                return self._finalize_recognition()
         
+        # 音声終了
         elif not is_speech_now and self.is_speech:
             self.speech_buffer.extend(chunk)
             self.silence_duration += len(chunk) / SAMPLE_RATE
             
-            if self.silence_duration > 0.5:
+            if self.silence_duration > 0.3:  # 300ms無音で終了（短め）
                 duration = len(self.speech_buffer) / SAMPLE_RATE
                 
                 if duration >= self.min_speech_duration:
-                    print(f"🔚 音声終了検出 (長さ: {duration:.1f}秒)")
-                    return self._process_speech_buffer()
+                    return self._finalize_recognition()
                 else:
-                    print(f"⏭️ 音声が短すぎるためスキップ ({duration:.1f}秒)")
                     self.is_speech = False
                     self.speech_buffer = []
         
         return None
     
-    def _process_speech_buffer(self) -> Optional[dict]:
-        """音声バッファをParakeet-TDT日本語版で認識"""
-        if not self.speech_buffer or asr_model is None:
+    def _finalize_recognition(self) -> Optional[dict]:
+        """認識を確定"""
+        if not self.speech_buffer or self.recognizer is None:
             self.is_speech = False
             self.speech_buffer = []
             return None
         
         try:
-            # numpy配列に変換
-            audio_array = np.array(self.speech_buffer, dtype=np.float32)
-            
-            # 正規化
-            max_val = np.abs(audio_array).max()
-            if max_val > 0:
-                audio_array = audio_array / max_val
-            
-            duration = len(audio_array)/SAMPLE_RATE
-            print(f"🔄 Parakeet-TDT認識開始... (長さ: {duration:.1f}秒)")
-            start_time = time.time()
-            
-            # 一時ファイルに保存（NeMoは音声ファイルを要求する）
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-                sf.write(tmp_path, audio_array, SAMPLE_RATE)
-            
-            try:
-                # Parakeet-TDT日本語版で認識
-                # transcribe()はリストを返す
-                output = asr_model.transcribe([tmp_path])
-                
-                elapsed = time.time() - start_time
-                print(f"⏱️ 認識完了: {elapsed:.1f}秒 (実時間比: {elapsed/duration:.1f}x)")
-                
-                # 結果を取得
-                if output and len(output) > 0:
-                    # output[0]はHypothesisオブジェクト
-                    text = output[0].text.strip() if hasattr(output[0], 'text') else str(output[0]).strip()
-                else:
-                    text = ""
-                
-            finally:
-                # 一時ファイルを削除
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+            # 最終結果を取得
+            result = json.loads(self.recognizer.FinalResult())
+            text = result.get('text', '').strip()
             
             if text:
-                print(f"✓ 認識結果: '{text}'")
+                print(f"✓ 最終認識: '{text}'")
                 
-                # 回答判定
-                answer = None
-                if any(word in text for word in ['まる', 'マル', '丸', '○']):
-                    answer = True
-                    print("  → ○ まる として認識")
-                elif any(word in text for word in ['ばつ', 'バツ', 'ペケ', '×', 'ばっ']):
-                    answer = False
-                    print("  → × ばつ として認識")
+                answer = detect_answer_keyword(text)
+                
+                if answer is True:
+                    print("  → ○ まる")
+                elif answer is False:
+                    print("  → × ばつ")
                 
                 self.is_speech = False
                 self.speech_buffer = []
@@ -258,13 +301,9 @@ class AudioProcessor:
                     'answer': answer,
                     'is_final': True
                 }
-            else:
-                print("⚠️ 認識結果が空です")
         
         except Exception as e:
-            print(f"❌ Parakeet-TDT認識エラー: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ 認識エラー: {e}")
         
         self.is_speech = False
         self.speech_buffer = []
@@ -275,7 +314,7 @@ async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
     initialize_detector()
     initialize_vad()
-    initialize_parakeet()
+    initialize_vosk()
     yield
     print("サーバーをシャットダウンしています...")
 
@@ -398,14 +437,16 @@ async def run_detection():
 @app.get("/")
 async def root():
     return {
-        "message": "Object Detection + Parakeet-TDT (日本語) + Silero VAD Server",
+        "message": "Ultra-Fast Keyword Spotting Server (まる/ばつ専用)",
         "websocket_endpoints": {
             "detection": "/ws/detection",
             "speech": "/ws/speech"
         },
-        "parakeet_ready": asr_model is not None,
+        "vosk_ready": vosk_model is not None,
         "vad_ready": vad_model is not None,
-        "detector_ready": detector is not None
+        "detector_ready": detector is not None,
+        "model_size": "~50MB",
+        "optimized_for": "Raspberry Pi 5"
     }
 
 @app.get("/status")
@@ -414,7 +455,7 @@ async def status():
         "detection_running": detection_running,
         "active_connections": len(active_connections),
         "person_detected": last_person_detected_time is not None,
-        "parakeet_model_loaded": asr_model is not None,
+        "vosk_model_loaded": vosk_model is not None,
         "vad_model_loaded": vad_model is not None,
         "detector_loaded": detector is not None
     }
@@ -457,8 +498,8 @@ async def websocket_speech(websocket: WebSocket):
     connection_id = str(id(websocket))
     print(f"🎤 音声認識WebSocket接続: {connection_id}")
     
-    audio_processor = AudioProcessor(connection_id)
-    audio_buffers[connection_id] = audio_processor
+    spotter = FastKeywordSpotter(connection_id)
+    audio_buffers[connection_id] = spotter
     
     try:
         while True:
@@ -476,15 +517,15 @@ async def websocket_speech(websocket: WebSocket):
                 elif "bytes" in message:
                     audio_bytes = message["bytes"]
                     
-                    if asr_model is not None and vad_model is not None:
+                    if vosk_model is not None and vad_model is not None:
                         try:
                             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
                             audio_float = audio_np.astype(np.float32) / 32768.0
                             
-                            result = audio_processor.process_audio_chunk(audio_float)
+                            result = spotter.process_audio_chunk(audio_float)
                             
                             if result:
-                                print(f"📤 認識結果を送信: {result.get('text', '')}")
+                                print(f"📤 送信: {result.get('text', '')}")
                                 await websocket.send_json(result)
                         
                         except Exception as e:
@@ -511,7 +552,7 @@ async def websocket_speech(websocket: WebSocket):
     finally:
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]
-        print(f"🧹 AudioProcessorクリーンアップ完了: {connection_id}")
+        print(f"🧹 クリーンアップ完了: {connection_id}")
 
 if __name__ == "__main__":
     import uvicorn
