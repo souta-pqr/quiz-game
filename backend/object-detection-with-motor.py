@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 import RPi.GPIO as GPIO
 import time
 import cv2
@@ -37,7 +38,7 @@ motor_running = False
 detector = None
 
 class MotorController:
-    """BLHモーター制御クラス（CW/CCW交互動作版）"""
+    """BLHモーター制御クラス（回転位置保存版）"""
     
     def __init__(self, rotation_time=ROTATION_TIME):
         """
@@ -50,6 +51,8 @@ class MotorController:
         self.rotation_time = rotation_time
         self.current_direction_cw = True  # True=CW, False=CCW
         self.rotation_start_time = None
+        self.elapsed_time_before_stop = 0.0  # 停止前の経過時間を保存
+        self.rotation_interrupted = False  # 回転が中断されたかどうか
     
     def initialize(self):
         """モーターを初期化"""
@@ -103,15 +106,30 @@ class MotorController:
         return True
     
     def start_next_rotation(self):
-        """次の方向で1回転を開始"""
-        if self.current_direction_cw:
-            self.start_cw()
+        """次の方向で1回転を開始（中断していた場合は継続）"""
+        if self.rotation_interrupted:
+            # 中断された回転を再開
+            print(f"🔄 中断された回転を再開（残り{self.get_remaining_time():.1f}秒）")
+            self.rotation_interrupted = False
+            # 経過時間を考慮して開始時刻を調整
+            if self.current_direction_cw:
+                self.start_cw()
+            else:
+                self.start_ccw()
+            # 開始時刻を過去に戻して、残り時間を正しく計算
+            self.rotation_start_time -= self.elapsed_time_before_stop
         else:
-            self.start_ccw()
+            # 新しい回転を開始
+            if self.current_direction_cw:
+                self.start_cw()
+            else:
+                self.start_ccw()
     
     def switch_direction(self):
-        """次回の回転方向を切り替え"""
+        """次回の回転方向を切り替え（1回転完了時のみ）"""
         self.current_direction_cw = not self.current_direction_cw
+        self.elapsed_time_before_stop = 0.0
+        self.rotation_interrupted = False
         print(f"🔄 次の回転方向: {'CW' if self.current_direction_cw else 'CCW'}")
     
     def check_rotation_complete(self):
@@ -126,6 +144,17 @@ class MotorController:
         elapsed = time.time() - self.rotation_start_time
         return elapsed >= self.rotation_time
     
+    def get_elapsed_time(self):
+        """現在の経過時間を取得
+        
+        Returns:
+            float: 経過時間（秒）
+        """
+        if not self.is_running or self.rotation_start_time is None:
+            return self.elapsed_time_before_stop
+        
+        return time.time() - self.rotation_start_time
+    
     def get_remaining_time(self):
         """残り回転時間を取得
         
@@ -133,15 +162,37 @@ class MotorController:
             float: 残り時間（秒）
         """
         if not self.is_running or self.rotation_start_time is None:
-            return 0.0
+            # 停止中の場合、停止前の経過時間から残り時間を計算
+            remaining = max(0.0, self.rotation_time - self.elapsed_time_before_stop)
+            return remaining
         
         elapsed = time.time() - self.rotation_start_time
         remaining = max(0.0, self.rotation_time - elapsed)
         return remaining
     
+    def get_rotation_progress(self):
+        """回転の進捗を取得（パーセント）
+        
+        Returns:
+            float: 進捗（0.0 ~ 100.0）
+        """
+        if self.rotation_time == 0:
+            return 0.0
+        
+        elapsed = self.get_elapsed_time()
+        progress = min(100.0, (elapsed / self.rotation_time) * 100.0)
+        return progress
+    
     def emergency_stop(self):
-        """緊急停止（ブレーキ適用）"""
+        """緊急停止（ブレーキ適用）- 回転位置を保存"""
         print("🛑 緊急停止実行!")
+        
+        # 現在の経過時間を保存
+        if self.is_running and self.rotation_start_time is not None:
+            self.elapsed_time_before_stop = time.time() - self.rotation_start_time
+            self.rotation_interrupted = True
+            print(f"  回転位置を保存: {self.elapsed_time_before_stop:.2f}秒経過 (進捗: {self.get_rotation_progress():.1f}%)")
+        
         GPIO.output(RUN_BRAKE, OFF)  # ブレーキ
         time.sleep(0.2)
         GPIO.output(START_STOP, OFF)  # 停止
@@ -152,7 +203,7 @@ class MotorController:
         print("✓ モーター停止完了")
     
     def normal_stop(self):
-        """通常停止"""
+        """通常停止（1回転完了時）"""
         if not self.is_running:
             return
         
@@ -164,6 +215,9 @@ class MotorController:
         self.is_running = False
         self.direction = "STOP"
         self.rotation_start_time = None
+        # 1回転完了なのでリセット
+        self.elapsed_time_before_stop = 0.0
+        self.rotation_interrupted = False
         print("✓ モーター停止完了")
     
     def get_status(self):
@@ -173,7 +227,10 @@ class MotorController:
             'running': self.is_running,
             'direction': self.direction,
             'next_direction': 'CW' if self.current_direction_cw else 'CCW',
-            'remaining_time': self.get_remaining_time()
+            'remaining_time': self.get_remaining_time(),
+            'elapsed_time': self.get_elapsed_time(),
+            'progress': self.get_rotation_progress(),
+            'interrupted': self.rotation_interrupted
         }
 
 class PersonDetector:
@@ -291,14 +348,15 @@ def main():
     print("✓ カメラ初期化完了")
     print()
     print("=" * 60)
-    print("物体検出統合型モーター制御システム（CW/CCW交互動作版）")
+    print("物体検出統合型モーター制御システム（回転位置保存版）")
     print("=" * 60)
     print("機能:")
     print("  - モーターをCWとCCWで交互に1回転ずつ実行")
-    print("  - 人を検出したらモーターを自動停止")
+    print("  - 人を検出したらモーターを自動停止（回転位置を保存）")
+    print("  - 人がいなくなったら中断した回転を再開")
     print("  - キーボード操作:")
     print("    [SPACE] 緊急停止")
-    print("    [r] 手動で再開（次の方向で1回転）")
+    print("    [r] 手動で再開（中断していた回転を継続）")
     print("    [q] 終了")
     print("=" * 60)
     print()
@@ -330,12 +388,14 @@ def main():
                 print("⚠ 安全のためモーターを停止しました")
                 print("  人がいなくなれば自動的に再開します")
             
-            # 人がいなくなったら自動再開
+            # 人がいなくなったら自動再開（中断した回転を継続）
             if person_detected_and_stopped and not stable_detection and not motor.is_running:
                 print("✓ 人がいなくなりました - 自動再開します")
                 time.sleep(1)  # 少し待機
                 motor.start_next_rotation()
-                rotation_count += 1
+                # 回転カウントは中断再開時は増やさない
+                if not motor.rotation_interrupted:
+                    rotation_count += 1
                 print(f"  回転回数: {rotation_count}")
                 person_detected_and_stopped = False
             
@@ -367,7 +427,10 @@ def main():
             status = motor.get_status()
             status_text = f"Motor: {'ON' if status['running'] else 'OFF'} | Dir: {status['direction']} | Next: {status['next_direction']}"
             detection_text = f"Person: {'YES' if person_detected else 'NO'} | Count: {person_count} | Stable: {person_detector.stable_count}/{STABLE_DETECTION_COUNT}"
-            rotation_text = f"Rotations: {rotation_count} | Remaining: {status['remaining_time']:.1f}s"
+            rotation_text = f"Rotations: {rotation_count} | Progress: {status['progress']:.1f}% | Remaining: {status['remaining_time']:.1f}s"
+            interrupted_text = ""
+            if status['interrupted']:
+                interrupted_text = f"[INTERRUPTED - Resume from {status['elapsed_time']:.1f}s]"
             
             cv2.putText(frame, status_text, (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -375,9 +438,12 @@ def main():
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
             cv2.putText(frame, rotation_text, (10, 90),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            if interrupted_text:
+                cv2.putText(frame, interrupted_text, (10, 120),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
             
             # 画面表示
-            cv2.imshow('Motor Control - Alternating CW/CCW', frame)
+            cv2.imshow('Motor Control - Position Saving', frame)
             
             # キーボード入力処理
             key = cv2.waitKey(1) & 0xFF
@@ -394,7 +460,9 @@ def main():
                 if not motor.is_running and not stable_detection:
                     print("手動再開...")
                     motor.start_next_rotation()
-                    rotation_count += 1
+                    # 回転カウントは中断再開時は増やさない
+                    if not motor.rotation_interrupted:
+                        rotation_count += 1
                     print(f"  回転回数: {rotation_count}")
                     person_detected_and_stopped = False
                 elif stable_detection:
