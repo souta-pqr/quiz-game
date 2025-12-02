@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-物体検出統合型モーター制御システム
-人を検出したらモーターを自動停止する安全機能付き
-"""
 import RPi.GPIO as GPIO
 import time
 import cv2
@@ -23,6 +19,11 @@ ON = GPIO.LOW
 OFF = GPIO.HIGH
 
 # ===================================
+# モーター設定
+# ===================================
+ROTATION_TIME = 5.0  # 1回転にかかる時間（秒）※モーターの速度に応じて調整してください
+
+# ===================================
 # 物体検出設定
 # ===================================
 DETECTION_THRESHOLD = 0.6  # 人検出の信頼度閾値
@@ -36,12 +37,19 @@ motor_running = False
 detector = None
 
 class MotorController:
-    """BLHモーター制御クラス"""
+    """BLHモーター制御クラス（CW/CCW交互動作版）"""
     
-    def __init__(self):
+    def __init__(self, rotation_time=ROTATION_TIME):
+        """
+        Args:
+            rotation_time: 1回転にかかる時間（秒）
+        """
         self.is_initialized = False
         self.is_running = False
         self.direction = "STOP"
+        self.rotation_time = rotation_time
+        self.current_direction_cw = True  # True=CW, False=CCW
+        self.rotation_start_time = None
     
     def initialize(self):
         """モーターを初期化"""
@@ -54,6 +62,7 @@ class MotorController:
         self.is_initialized = True
         self.is_running = False
         print("✓ モーター初期化完了")
+        print(f"  1回転時間: {self.rotation_time}秒")
     
     def start_cw(self):
         """CW方向（時計回り）で起動"""
@@ -70,6 +79,7 @@ class MotorController:
         
         self.is_running = True
         self.direction = "CW"
+        self.rotation_start_time = time.time()
         print("✓ CW方向で回転中")
         return True
     
@@ -88,8 +98,46 @@ class MotorController:
         
         self.is_running = True
         self.direction = "CCW"
+        self.rotation_start_time = time.time()
         print("✓ CCW方向で回転中")
         return True
+    
+    def start_next_rotation(self):
+        """次の方向で1回転を開始"""
+        if self.current_direction_cw:
+            self.start_cw()
+        else:
+            self.start_ccw()
+    
+    def switch_direction(self):
+        """次回の回転方向を切り替え"""
+        self.current_direction_cw = not self.current_direction_cw
+        print(f"🔄 次の回転方向: {'CW' if self.current_direction_cw else 'CCW'}")
+    
+    def check_rotation_complete(self):
+        """1回転が完了したかチェック
+        
+        Returns:
+            bool: 1回転完了したらTrue
+        """
+        if not self.is_running or self.rotation_start_time is None:
+            return False
+        
+        elapsed = time.time() - self.rotation_start_time
+        return elapsed >= self.rotation_time
+    
+    def get_remaining_time(self):
+        """残り回転時間を取得
+        
+        Returns:
+            float: 残り時間（秒）
+        """
+        if not self.is_running or self.rotation_start_time is None:
+            return 0.0
+        
+        elapsed = time.time() - self.rotation_start_time
+        remaining = max(0.0, self.rotation_time - elapsed)
+        return remaining
     
     def emergency_stop(self):
         """緊急停止（ブレーキ適用）"""
@@ -100,6 +148,7 @@ class MotorController:
         
         self.is_running = False
         self.direction = "STOP"
+        self.rotation_start_time = None
         print("✓ モーター停止完了")
     
     def normal_stop(self):
@@ -114,6 +163,7 @@ class MotorController:
         
         self.is_running = False
         self.direction = "STOP"
+        self.rotation_start_time = None
         print("✓ モーター停止完了")
     
     def get_status(self):
@@ -121,7 +171,9 @@ class MotorController:
         return {
             'initialized': self.is_initialized,
             'running': self.is_running,
-            'direction': self.direction
+            'direction': self.direction,
+            'next_direction': 'CW' if self.current_direction_cw else 'CCW',
+            'remaining_time': self.get_remaining_time()
         }
 
 class PersonDetector:
@@ -220,7 +272,7 @@ def main():
     GPIO.setup(INT_VR_EXT, GPIO.OUT)
     
     # モーター制御初期化
-    motor = MotorController()
+    motor = MotorController(rotation_time=ROTATION_TIME)
     motor.initialize()
     
     # 物体検出初期化
@@ -239,23 +291,25 @@ def main():
     print("✓ カメラ初期化完了")
     print()
     print("=" * 60)
-    print("物体検出統合型モーター制御システム")
+    print("物体検出統合型モーター制御システム（CW/CCW交互動作版）")
     print("=" * 60)
     print("機能:")
+    print("  - モーターをCWとCCWで交互に1回転ずつ実行")
     print("  - 人を検出したらモーターを自動停止")
     print("  - キーボード操作:")
-    print("    [s] CW方向で起動")
-    print("    [d] CCW方向で起動")
-    print("    [f] 通常停止")
     print("    [SPACE] 緊急停止")
+    print("    [r] 手動で再開（次の方向で1回転）")
     print("    [q] 終了")
     print("=" * 60)
     print()
     
-    # モーターを起動（デフォルトCW）
-    print("3秒後にCW方向でモーター起動...")
+    # 初回起動
+    print("3秒後に自動的にモーター起動（CW方向）...")
     time.sleep(3)
-    motor.start_cw()
+    motor.start_next_rotation()
+    
+    rotation_count = 1
+    person_detected_and_stopped = False
     
     try:
         while True:
@@ -272,8 +326,38 @@ def main():
             if stable_detection and motor.is_running:
                 print(f"👤 人を検出! ({person_count}人)")
                 motor.emergency_stop()
+                person_detected_and_stopped = True
                 print("⚠ 安全のためモーターを停止しました")
-                print("  再開するには [s] または [d] を押してください")
+                print("  人がいなくなれば自動的に再開します")
+            
+            # 人がいなくなったら自動再開
+            if person_detected_and_stopped and not stable_detection and not motor.is_running:
+                print("✓ 人がいなくなりました - 自動再開します")
+                time.sleep(1)  # 少し待機
+                motor.start_next_rotation()
+                rotation_count += 1
+                print(f"  回転回数: {rotation_count}")
+                person_detected_and_stopped = False
+            
+            # 1回転完了チェック
+            if motor.check_rotation_complete():
+                print(f"✓ 1回転完了! ({motor.direction}方向)")
+                motor.normal_stop()
+                
+                # 次の方向に切り替え
+                motor.switch_direction()
+                
+                # 少し待機してから次の回転を開始
+                time.sleep(1)
+                
+                # 人が検出されていなければ次の回転を開始
+                if not stable_detection:
+                    motor.start_next_rotation()
+                    rotation_count += 1
+                    print(f"  回転回数: {rotation_count}")
+                else:
+                    print("⚠ 人を検出中のため次の回転を待機...")
+                    person_detected_and_stopped = True
             
             # 検出結果を描画
             bboxes, scores, class_ids = person_detector.detector.inference(frame)
@@ -281,16 +365,19 @@ def main():
             
             # ステータス表示
             status = motor.get_status()
-            status_text = f"Motor: {'ON' if status['running'] else 'OFF'} | Direction: {status['direction']}"
+            status_text = f"Motor: {'ON' if status['running'] else 'OFF'} | Dir: {status['direction']} | Next: {status['next_direction']}"
             detection_text = f"Person: {'YES' if person_detected else 'NO'} | Count: {person_count} | Stable: {person_detector.stable_count}/{STABLE_DETECTION_COUNT}"
+            rotation_text = f"Rotations: {rotation_count} | Remaining: {status['remaining_time']:.1f}s"
             
             cv2.putText(frame, status_text, (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             cv2.putText(frame, detection_text, (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            cv2.putText(frame, rotation_text, (10, 90),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             
             # 画面表示
-            cv2.imshow('Motor Control with Person Detection', frame)
+            cv2.imshow('Motor Control - Alternating CW/CCW', frame)
             
             # キーボード入力処理
             key = cv2.waitKey(1) & 0xFF
@@ -299,23 +386,21 @@ def main():
                 print("\n終了します...")
                 break
             
-            elif key == ord('s'):
-                if not motor.is_running:
-                    motor.start_cw()
-                else:
-                    print("⚠ モーターは既に動作中です")
-            
-            elif key == ord('d'):
-                if not motor.is_running:
-                    motor.start_ccw()
-                else:
-                    print("⚠ モーターは既に動作中です")
-            
-            elif key == ord('f'):
-                motor.normal_stop()
-            
             elif key == ord(' '):
                 motor.emergency_stop()
+                person_detected_and_stopped = False
+            
+            elif key == ord('r'):
+                if not motor.is_running and not stable_detection:
+                    print("手動再開...")
+                    motor.start_next_rotation()
+                    rotation_count += 1
+                    print(f"  回転回数: {rotation_count}")
+                    person_detected_and_stopped = False
+                elif stable_detection:
+                    print("⚠ 人を検出中のため再開できません")
+                else:
+                    print("⚠ モーターは既に動作中です")
     
     except KeyboardInterrupt:
         print("\n\n割り込みを検出しました")
@@ -345,6 +430,7 @@ def main():
         GPIO.cleanup()
         
         print("✓ クリーンアップ完了")
+        print(f"総回転回数: {rotation_count}")
         print("プログラムを終了します\n")
 
 if __name__ == "__main__":
