@@ -28,7 +28,7 @@ ROTATION_TIME = 3.0  # 1回転にかかる時間（秒）※モーターの速�
 # 物体検出設定
 # ===================================
 DETECTION_THRESHOLD = 0.3  # 人検出の信頼度閾値
-STABLE_DETECTION_COUNT = 3  # 安定検出に必要な連続フレーム数
+STABLE_DETECTION_COUNT = 1  # 安定検出に必要な連続フレーム数
 PERSON_CLASS_ID = 0  # COCOデータセットの人クラスID
 
 # ===================================
