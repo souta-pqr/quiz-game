@@ -7,7 +7,6 @@ import cv2
 import numpy as np
 from nanodet import NanoDetONNX
 import threading
-from queue import Queue
 
 # ===================================
 # GPIO設定
@@ -24,14 +23,14 @@ OFF = GPIO.HIGH
 # ===================================
 # モーター設定
 # ===================================
-ROTATION_TIME = 3.0  # 1回転にかかる時間（秒）
+ROTATION_TIME = 3.0
 
 # ===================================
-# 物体検出設定（超軽量化）
+# 物体検出設定
 # ===================================
-DETECTION_THRESHOLD = 0.3  # 人検出の信頼度閾値
-STABLE_DETECTION_COUNT = 2  # 2フレームに削減（瞬時停止のため）
-PERSON_CLASS_ID = 0  # COCOデータセットの人クラスID
+DETECTION_THRESHOLD = 0.25  # 閾値を下げて検出しやすく
+STABLE_DETECTION_COUNT = 2
+PERSON_CLASS_ID = 0
 
 class MotorController:
     """BLHモーター制御クラス"""
@@ -45,10 +44,9 @@ class MotorController:
         self.rotation_start_time = None
         self.elapsed_time_before_stop = 0.0
         self.rotation_interrupted = False
-        self.lock = threading.Lock()  # スレッドセーフ
+        self.lock = threading.Lock()
     
     def initialize(self):
-        """モーターを初期化"""
         print("🔧 モーター初期化中...")
         GPIO.output(START_STOP, OFF)
         GPIO.output(RUN_BRAKE, OFF)
@@ -60,43 +58,36 @@ class MotorController:
         print("✓ モーター初期化完了")
     
     def start_cw(self):
-        """CW方向で起動"""
         with self.lock:
             if not self.is_initialized:
                 return False
-            
             print("▶ CW起動")
             GPIO.output(CW_CCW, ON)
             time.sleep(0.1)
             GPIO.output(START_STOP, ON)
             time.sleep(0.5)
             GPIO.output(RUN_BRAKE, ON)
-            
             self.is_running = True
             self.direction = "CW"
             self.rotation_start_time = time.time()
             return True
     
     def start_ccw(self):
-        """CCW方向で起動"""
         with self.lock:
             if not self.is_initialized:
                 return False
-            
             print("▶ CCW起動")
             GPIO.output(CW_CCW, OFF)
             time.sleep(0.1)
             GPIO.output(START_STOP, ON)
             time.sleep(0.5)
             GPIO.output(RUN_BRAKE, ON)
-            
             self.is_running = True
             self.direction = "CCW"
             self.rotation_start_time = time.time()
             return True
     
     def start_next_rotation(self):
-        """次の方向で1回転を開始"""
         if self.rotation_interrupted:
             print(f"🔄 再開（残り{self.get_remaining_time():.1f}s）")
             self.rotation_interrupted = False
@@ -113,7 +104,6 @@ class MotorController:
                 self.start_ccw()
     
     def switch_direction(self):
-        """次回の回転方向を切り替え"""
         with self.lock:
             self.current_direction_cw = not self.current_direction_cw
             self.elapsed_time_before_stop = 0.0
@@ -121,7 +111,6 @@ class MotorController:
         print(f"🔄 次: {'CW' if self.current_direction_cw else 'CCW'}")
     
     def check_rotation_complete(self):
-        """1回転が完了したかチェック"""
         with self.lock:
             if not self.is_running or self.rotation_start_time is None:
                 return False
@@ -129,54 +118,42 @@ class MotorController:
             return elapsed >= self.rotation_time
     
     def get_remaining_time(self):
-        """残り回転時間を取得"""
         with self.lock:
             if not self.is_running or self.rotation_start_time is None:
-                remaining = max(0.0, self.rotation_time - self.elapsed_time_before_stop)
-                return remaining
+                return max(0.0, self.rotation_time - self.elapsed_time_before_stop)
             elapsed = time.time() - self.rotation_start_time
-            remaining = max(0.0, self.rotation_time - elapsed)
-            return remaining
+            return max(0.0, self.rotation_time - elapsed)
     
     def emergency_stop(self):
-        """緊急停止 - 即座に実行"""
         with self.lock:
             if not self.is_running:
                 return
-            
             print("🛑 緊急停止!")
-            
             if self.rotation_start_time is not None:
                 self.elapsed_time_before_stop = time.time() - self.rotation_start_time
                 self.rotation_interrupted = True
-            
-            # GPIO操作は最優先
             GPIO.output(RUN_BRAKE, OFF)
             GPIO.output(START_STOP, OFF)
-            
             self.is_running = False
             self.direction = "STOP"
             self.rotation_start_time = None
     
     def normal_stop(self):
-        """通常停止"""
         with self.lock:
             if not self.is_running:
                 return
-            
             print("⏹ 停止")
             GPIO.output(RUN_BRAKE, OFF)
             time.sleep(0.3)
             GPIO.output(START_STOP, OFF)
-            
             self.is_running = False
             self.direction = "STOP"
             self.rotation_start_time = None
             self.elapsed_time_before_stop = 0.0
             self.rotation_interrupted = False
 
-class FastPersonDetector:
-    """超高速物体検出クラス"""
+class DebugPersonDetector:
+    """デバッグ機能付き物体検出クラス"""
     
     def __init__(self, model_path=None):
         print("🔍 物体検出モデル読み込み中...")
@@ -194,46 +171,70 @@ class FastPersonDetector:
             for path in possible_paths:
                 if os.path.exists(path):
                     model_path = path
+                    print(f"✓ モデル発見: {model_path}")
                     break
             
             if model_path is None:
                 raise FileNotFoundError("NanoDetモデルファイルが見つかりません")
         
-        # 最小サイズで初期化（160x160）
+        # 標準サイズで初期化（検出精度優先）
         self.detector = NanoDetONNX(
             model_path=model_path,
-            input_shape=160,  # 320 → 160（4倍高速化）
+            input_shape=320,  # 標準サイズ
             class_score_th=DETECTION_THRESHOLD,
             nms_th=0.6,
         )
         self.stable_count = 0
-        print("✓ 検出モデル読み込み完了（超軽量版: 160x160）")
+        self.detection_count = 0
+        self.last_detection_time = time.time()
+        print("✓ 検出モデル読み込み完了（320x320）")
+        print(f"  検出閾値: {DETECTION_THRESHOLD}")
+        print(f"  安定検出カウント: {STABLE_DETECTION_COUNT}")
     
     def detect_person(self, frame):
-        """超高速検出（最小サイズ）"""
-        # 極小サイズで検出（80x60）
-        tiny_frame = cv2.resize(frame, (80, 60), interpolation=cv2.INTER_NEAREST)
+        """デバッグ情報付き検出"""
+        self.detection_count += 1
         
-        bboxes, scores, class_ids = self.detector.inference(tiny_frame)
+        # 標準サイズで検出
+        bboxes, scores, class_ids = self.detector.inference(frame)
         
-        person_count = sum(
-            1 for i, cid in enumerate(class_ids) 
-            if cid == PERSON_CLASS_ID and scores[i] >= DETECTION_THRESHOLD
-        )
+        # 全検出結果を表示（デバッグ用）
+        if len(class_ids) > 0:
+            print(f"\n[検出 #{self.detection_count}]")
+            for i, (bbox, score, class_id) in enumerate(zip(bboxes, scores, class_ids)):
+                # COCOクラス名
+                class_names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat']
+                class_name = class_names[class_id] if class_id < len(class_names) else f'class_{class_id}'
+                print(f"  {i+1}. {class_name} (ID:{class_id}): 信頼度 {score:.3f}")
         
+        # 人クラスのみをフィルタリング
+        person_detections = [
+            (i, score) for i, (cid, score) in enumerate(zip(class_ids, scores))
+            if cid == PERSON_CLASS_ID and score >= DETECTION_THRESHOLD
+        ]
+        
+        person_count = len(person_detections)
         person_detected = person_count > 0
         
         if person_detected:
+            print(f"  ✓ 人を検出: {person_count}人")
+            for idx, (i, score) in enumerate(person_detections):
+                print(f"    人#{idx+1}: 信頼度 {score:.3f}")
             self.stable_count += 1
         else:
+            if len(class_ids) > 0:
+                print(f"  ✗ 人は検出されず（他のオブジェクトのみ）")
             self.stable_count = 0
         
         stable_detection = self.stable_count >= STABLE_DETECTION_COUNT
         
+        if stable_detection:
+            print(f"  🎯 安定検出! ({self.stable_count}/{STABLE_DETECTION_COUNT})")
+        
         return person_detected, person_count, stable_detection
 
 class DetectionThread(threading.Thread):
-    """検出専用スレッド（バックグラウンドで常時監視）"""
+    """検出専用スレッド（デバッグ版）"""
     
     def __init__(self, cap, detector, motor, stop_event):
         super().__init__(daemon=True)
@@ -243,18 +244,25 @@ class DetectionThread(threading.Thread):
         self.stop_event = stop_event
         self.person_detected_flag = False
         self.stable_detection_flag = False
+        self.frame_count = 0
     
     def run(self):
-        """検出ループ（別スレッドで実行）"""
         print("🔍 検出スレッド起動")
         
         while not self.stop_event.is_set():
             ret, frame = self.cap.read()
             if not ret:
-                time.sleep(0.01)
+                print("⚠ フレーム取得失敗")
+                time.sleep(0.1)
                 continue
             
-            # 超高速検出
+            self.frame_count += 1
+            
+            # フレーム情報を定期的に表示
+            if self.frame_count % 30 == 0:
+                print(f"\n[フレーム #{self.frame_count}] 形状: {frame.shape}")
+            
+            # 検出実行
             person_detected, person_count, stable_detection = self.detector.detect_person(frame)
             
             self.person_detected_flag = person_detected
@@ -262,11 +270,10 @@ class DetectionThread(threading.Thread):
             
             # 安定検出したら即座にモーター停止
             if stable_detection and self.motor.is_running:
-                print(f"👤 人検出! ({person_count}人) - 即座に停止")
+                print(f"\n👤👤👤 人検出確定! ({person_count}人) - モーター緊急停止 👤👤👤\n")
                 self.motor.emergency_stop()
             
-            # CPU負荷軽減（わずかなスリープ）
-            time.sleep(0.005)
+            time.sleep(0.05)  # 検出頻度（20fps相当）
         
         print("🔍 検出スレッド終了")
 
@@ -285,30 +292,27 @@ def main():
     motor.initialize()
     
     # 物体検出初期化
-    person_detector = FastPersonDetector()
+    person_detector = DebugPersonDetector()
     
-    # カメラ初期化（最小解像度）
+    # カメラ初期化（標準解像度）
     print("📷 カメラ初期化中...")
     cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 160)  # 超低解像度
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # バッファ最小化
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
     if not cap.isOpened():
         print("❌ カメラを開けませんでした")
         return
     
-    print("✓ カメラ初期化完了（160x120）")
+    print("✓ カメラ初期化完了（640x480）")
     print()
     print("=" * 60)
-    print("超軽量・瞬時停止対応モーター制御システム")
+    print("デバッグ版モーター制御システム")
     print("=" * 60)
-    print("最適化:")
-    print("  - 検出を別スレッドで実行（メインループ非ブロッキング）")
-    print("  - 超低解像度（160x120 → 80x60で検出）")
-    print("  - 検出モデル入力サイズ最小化（160x160）")
-    print("  - 人検出 → 即座にモーター停止")
+    print("機能:")
+    print("  - 検出結果を詳細に表示")
+    print("  - 全オブジェクトの検出情報を出力")
+    print("  - 人検出時に詳細な信頼度を表示")
     print("=" * 60)
     print()
     
@@ -324,26 +328,15 @@ def main():
     
     rotation_count = 1
     person_detected_and_stopped = False
-    last_status_time = time.time()
     
     try:
         print("✓ システム起動\n")
         
         while True:
-            # 定期的にステータス表示（3秒ごと）
-            current_time = time.time()
-            if current_time - last_status_time >= 3.0:
-                print(f"[状態] Motor: {'ON' if motor.is_running else 'OFF'} | "
-                      f"{motor.direction} | "
-                      f"Person: {'YES' if detection_thread.person_detected_flag else 'NO'} | "
-                      f"Stable: {person_detector.stable_count}/{STABLE_DETECTION_COUNT} | "
-                      f"回転: {rotation_count}")
-                last_status_time = current_time
-            
             # 人がいなくなったら自動再開
             if person_detected_and_stopped and not detection_thread.stable_detection_flag and not motor.is_running:
-                print("✓ 人消失 - 再開")
-                time.sleep(0.5)
+                print("\n✓ 人消失 - 再開\n")
+                time.sleep(1)
                 motor.start_next_rotation()
                 if not motor.rotation_interrupted:
                     rotation_count += 1
@@ -355,10 +348,10 @@ def main():
             
             # 1回転完了チェック
             if motor.check_rotation_complete():
-                print(f"✓ 1回転完了 ({motor.direction})")
+                print(f"\n✓ 1回転完了 ({motor.direction})\n")
                 motor.normal_stop()
                 motor.switch_direction()
-                time.sleep(0.5)
+                time.sleep(1)
                 
                 if not detection_thread.stable_detection_flag:
                     motor.start_next_rotation()
@@ -367,7 +360,7 @@ def main():
                     print("⚠ 人検出中 - 待機")
                     person_detected_and_stopped = True
             
-            time.sleep(0.02)  # メインループ
+            time.sleep(0.1)
     
     except KeyboardInterrupt:
         print("\n\n終了")
@@ -380,18 +373,14 @@ def main():
     finally:
         print("\nクリーンアップ中...")
         
-        # 検出スレッド停止
         stop_event.set()
         detection_thread.join(timeout=2)
         
-        # モーター停止
         if motor.is_running:
             motor.emergency_stop()
         
-        # カメラ解放
         cap.release()
         
-        # GPIO解放
         GPIO.output(START_STOP, OFF)
         GPIO.output(RUN_BRAKE, OFF)
         GPIO.output(CW_CCW, OFF)
@@ -401,6 +390,7 @@ def main():
         
         print("✓ クリーンアップ完了")
         print(f"総回転回数: {rotation_count}")
+        print(f"総検出回数: {person_detector.detection_count}")
         print("終了\n")
 
 if __name__ == "__main__":
