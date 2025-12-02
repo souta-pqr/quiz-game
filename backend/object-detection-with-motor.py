@@ -30,11 +30,7 @@ ROTATION_TIME = 3.0  # 1回転にかかる時間（秒）
 # 物体検出設定（超軽量化）
 # ===================================
 DETECTION_THRESHOLD = 0.3  # 人検出の信頼度閾値
-<<<<<<< HEAD
-STABLE_DETECTION_COUNT = 1  # 安定検出に必要な連続フレーム数
-=======
 STABLE_DETECTION_COUNT = 2  # 2フレームに削減（瞬時停止のため）
->>>>>>> 0b01c19b348eb46424dfd5acf9229ca35ab25486
 PERSON_CLASS_ID = 0  # COCOデータセットの人クラスID
 
 class MotorController:
