@@ -12,7 +12,6 @@ export const useObjectDetection = (onPlayAudio) => {
       const ws = new WebSocket('ws://localhost:8000/ws/detection');
       
       ws.onopen = () => {
-        console.log('物体検出サーバーに接続しました');
         setIsConnected(true);
         
         // Keep-alive ping
@@ -27,13 +26,11 @@ export const useObjectDetection = (onPlayAudio) => {
       
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('受信:', data);
         
         if (data.type === 'person_detected') {
           setPersonDetected(true);
           setDetectionCount(data.count);
         } else if (data.type === 'play_audio') {
-          console.log('音声再生トリガーを受信しました');
           setPersonDetected(false);
           if (onPlayAudio) {
             onPlayAudio();
@@ -46,7 +43,6 @@ export const useObjectDetection = (onPlayAudio) => {
       };
       
       ws.onclose = () => {
-        console.log('WebSocket接続が切断されました');
         setIsConnected(false);
         setPersonDetected(false);
         
@@ -56,7 +52,6 @@ export const useObjectDetection = (onPlayAudio) => {
         
         // 5秒後に再接続を試みる
         reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('再接続を試みます...');
           connect();
         }, 5000);
       };

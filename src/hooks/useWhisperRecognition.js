@@ -28,21 +28,10 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
         // 16kHz, 16-bit PCMに変換
         const pcmData = convertTo16kHzPCM(audioData);
         wsRef.current.send(pcmData);
-        
         audioChunkCountRef.current++;
-        if (audioChunkCountRef.current === 1) {
-          console.log(`📤 初回音声データ送信: ${pcmData.byteLength} バイト (ArrayBuffer)`);
-        } else if (audioChunkCountRef.current % 50 === 0) {
-          console.log(`📤 音声データ送信: ${audioChunkCountRef.current}チャンク目 (${pcmData.byteLength} バイト)`);
-          setDebugInfo(`送信: ${audioChunkCountRef.current}チャンク`);
-        }
       } catch (error) {
         console.error('音声データ送信エラー:', error);
         setDebugInfo(`送信エラー: ${error.message}`);
-      }
-    } else {
-      if (audioChunkCountRef.current % 100 === 0) {
-        console.warn(`⚠️ WebSocket未接続 (状態: ${wsRef.current?.readyState})`);
       }
     }
   }, []);
@@ -71,36 +60,21 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
       view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
     
-    // デバッグ: 最初の変換時のみログ
-    if (!convertTo16kHzPCM.logged) {
-      console.log('🔄 PCM変換情報:');
-      console.log(`  元サンプルレート: ${sampleRate}Hz`);
-      console.log(`  変換後: ${targetSampleRate}Hz`);
-      console.log(`  元データ長: ${audioData.length} サンプル`);
-      console.log(`  変換後データ長: ${result.length} サンプル = ${buffer.byteLength} バイト`);
-      console.log(`  データ型: ArrayBuffer`);
-      convertTo16kHzPCM.logged = true;
-    }
-    
     return buffer;
   };
 
   // WebSocket接続を確立
   const connectWebSocket = useCallback(() => {
     try {
-      console.log('🔌 WebSocket接続を試みています...');
       const ws = new WebSocket(websocketUrl);
       
       ws.onopen = () => {
-        console.log('✅ Whisper WebSocket接続が確立されました');
         setIsConnected(true);
         setDebugInfo('接続成功');
       };
       
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        
-        console.log('🔔 WebSocketメッセージ受信:', data.type);
         
         if (data.type === 'speech_result') {
           const timestamp = new Date().toLocaleTimeString();
@@ -120,15 +94,11 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
           setRecognizedText(data.text);
           
           if (data.is_final) {
-            console.log(`📝 Whisper認識（完全）: ${data.text}`);
             setDebugInfo(`認識: ${data.text}`);
-          } else {
-            console.log(`📝 Whisper認識（部分）: ${data.text}`);
           }
           
           // 回答が検出された場合
           if (data.is_final && data.answer !== null && data.answer !== undefined) {
-            console.log(`✓ 回答検出: ${data.answer ? 'まる' : 'ばつ'}`);
             onAnswer(data.answer);
             setRecognizedText('');
           }
@@ -148,7 +118,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
       };
       
       ws.onclose = () => {
-        console.log('🔌 WebSocket接続が切断されました');
         setIsConnected(false);
         setDebugInfo('切断');
         
@@ -156,7 +125,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
         if (shouldRestartRef.current) {
           setTimeout(() => {
             if (shouldRestartRef.current) {
-              console.log('🔄 WebSocket再接続を試みます...');
               connectWebSocket();
             }
           }, 5000);
@@ -181,13 +149,10 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
 
     // 既に起動中なら何もしない
     if (isActiveRef.current && audioContextRef.current) {
-      console.log('ℹ️ 音声認識は既に実行中です');
       return;
     }
 
     try {
-      console.log('🎤 マイクアクセスを要求しています...');
-      
       // マイクアクセスを要求
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -201,7 +166,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
       
       streamRef.current = stream;
       setIsSupported(true);
-      console.log('✅ マイクアクセス許可');
       
       // AudioContextを作成
       const audioContext = new (window.AudioContext || window.webkitAudioContext)({
@@ -230,8 +194,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
       isActiveRef.current = true;
       setIsListening(true);
       setDebugInfo('認識中（VAD有効）');
-      console.log('✅ Whisper音声認識を開始しました（Silero VAD統合）');
-      console.log(`サンプルレート: ${audioContext.sampleRate}Hz`);
       
     } catch (error) {
       console.error('❌ マイクアクセスエラー:', error);
@@ -242,7 +204,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
       if (autoStartEnabled && shouldRestartRef.current) {
         setTimeout(() => {
           if (shouldRestartRef.current) {
-            console.log('🔄 マイクアクセスを再試行します...');
             startListening();
           }
         }, 5000);
@@ -252,7 +213,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
 
   // マイク入力を停止
   const stopListening = useCallback(() => {
-    console.log('⏹️ 音声認識を停止しています...');
     isActiveRef.current = false;
     
     if (processorRef.current) {
@@ -273,7 +233,6 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
     audioChunkCountRef.current = 0;
     setIsListening(false);
     setDebugInfo('停止');
-    console.log('✅ 音声認識を停止しました');
   }, []);
 
   // 履歴をクリア
@@ -303,25 +262,21 @@ export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8
     // 少し遅延してから自動的に音声認識を開始
     const autoStartTimer = setTimeout(() => {
       if (mounted && autoStartEnabled && shouldRestartRef.current) {
-        console.log('🚀 Whisper音声認識を自動起動します...');
         startListening();
       }
     }, 2000);
     
     // クリーンアップ
     return () => {
-      console.log('🧹 useWhisperRecognition クリーンアップ開始');
       mounted = false;
       clearTimeout(autoStartTimer);
       shouldRestartRef.current = false;
       stopListening();
       
       if (wsRef.current) {
-        console.log('🔌 WebSocket接続をクローズします');
         wsRef.current.close();
         wsRef.current = null;
       }
-      console.log('🧹 useWhisperRecognition クリーンアップ完了');
     };
   }, []);
 

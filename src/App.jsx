@@ -21,7 +21,6 @@ const App = () => {
   // 回答処理
   const handleAnswer = useCallback((userAnswer) => {
     if (isProcessingRef.current) {
-      console.log('回答処理中のため無視');
       return;
     }
     
@@ -50,9 +49,12 @@ const App = () => {
       setShowFeedback(false);
       isProcessingRef.current = false;
       
-      if (currentQuestion < quizData.length - 1) {
-        setCurrentQuestion(prev => prev + 1);
+      // 次の問題があるかチェック
+      const nextQuestion = currentQuestion + 1;
+      if (nextQuestion < quizData.length) {
+        setCurrentQuestion(nextQuestion);
       } else {
+        // クイズ終了を確実に設定
         setGameState('finished');
       }
     }, 2000);
@@ -73,7 +75,6 @@ const App = () => {
 
   // 物体検出からの音声再生トリガー
   const handlePlayAudioTrigger = useCallback(() => {
-    console.log('物体検出により音声再生がトリガーされました');
     audioPlayRequestRef.current = true;
     setShouldPlayAudio(true);
     
@@ -95,11 +96,9 @@ const App = () => {
       const key = event.key.toLowerCase();
       
       if (key === 'o') {
-        console.log('キーボード入力: まる');
         handleAnswer(true);
       }
       else if (key === 'x') {
-        console.log('キーボード入力: ばつ');
         handleAnswer(false);
       }
     };
@@ -114,7 +113,6 @@ const App = () => {
   // フィードバック中は音声認識を一時停止、終了後に再開
   useEffect(() => {
     if (showFeedback) {
-      console.log('フィードバック表示中: 音声認識を一時停止');
       if (isWhisperListening) {
         stopWhisperListening();
       }
@@ -122,26 +120,34 @@ const App = () => {
       // フィードバック終了後、少し遅延してから音声認識を再開
       const restartTimer = setTimeout(() => {
         if (!isWhisperListening && isWhisperSupported && isWhisperConnected) {
-          console.log('フィードバック終了: 音声認識を再開');
           startWhisperListening();
         }
       }, 500);
       
       return () => clearTimeout(restartTimer);
     }
-  }, [showFeedback, isWhisperListening, isWhisperSupported, isWhisperConnected, startWhisperListening, stopWhisperListening]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFeedback, isWhisperListening, isWhisperSupported, isWhisperConnected]);
 
-  const resetGame = () => {
-    setCurrentQuestion(0);
-    setScore(0);
-    setAnswers([]);
-    setGameState('playing');
+  const resetGame = useCallback(() => {
+    // すべての状態を確実にリセット
     setShowFeedback(false);
     setLastAnswer(null);
     isProcessingRef.current = false;
-    clearWhisperHistory();
-  };
+    audioPlayRequestRef.current = false;
+    setShouldPlayAudio(false);
+    
+    // 少し遅延してから新しいゲームを開始（状態のクリーンアップを確実に）
+    setTimeout(() => {
+      setCurrentQuestion(0);
+      setScore(0);
+      setAnswers([]);
+      setGameState('playing');
+      clearWhisperHistory();
+    }, 100);
+  }, [clearWhisperHistory]);
 
+  // クイズ終了画面
   if (gameState === 'finished') {
     return (
       <ResultScreen
@@ -155,13 +161,18 @@ const App = () => {
 
   const currentQuiz = quizData[currentQuestion];
   
-  // クイズデータが存在しない場合のガード
-  if (!currentQuiz) {
-    console.error('クイズデータが見つかりません:', currentQuestion);
+  // クイズデータが存在しない場合（エラー状態）
+  if (!currentQuiz && gameState === 'playing') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
-          <p className="text-xl text-gray-700">クイズデータの読み込み中...</p>
+      <div className="min-h-screen bg-gradient-to-br from-red-700 via-green-700 to-red-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-4 border-red-600">
+          <p className="text-xl text-red-700 mb-4">⚠️ エラーが発生しました</p>
+          <button
+            onClick={resetGame}
+            className="bg-gradient-to-r from-red-600 to-green-600 text-white py-3 px-6 rounded-xl font-bold hover:from-red-700 hover:to-green-700 transition"
+          >
+            最初から始める
+          </button>
         </div>
       </div>
     );

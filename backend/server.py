@@ -197,8 +197,6 @@ class FastKeywordSpotter:
             
             if self.recognizer:
                 self.recognizer.Reset()
-            
-            print(f"🎤 音声検出 (信頼度: {speech_prob:.2f})")
         
         # 音声継続中 - リアルタイムで認識
         elif is_speech_now and self.is_speech:
@@ -217,7 +215,6 @@ class FastKeywordSpotter:
                 if text:
                     answer = detect_answer_keyword(text)
                     if answer is not None:
-                        print(f"✓ キーワード即座検出: '{text}'")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -236,7 +233,6 @@ class FastKeywordSpotter:
                     answer = detect_answer_keyword(partial_text)
                     if answer is not None:
                         # 部分結果でもキーワードを検出したら即座に応答
-                        print(f"✓ キーワード部分検出: '{partial_text}'")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -283,14 +279,7 @@ class FastKeywordSpotter:
             text = result.get('text', '').strip()
             
             if text:
-                print(f"✓ 最終認識: '{text}'")
-                
                 answer = detect_answer_keyword(text)
-                
-                if answer is True:
-                    print("  → ○ まる")
-                elif answer is False:
-                    print("  → × ばつ")
                 
                 self.is_speech = False
                 self.speech_buffer = []
@@ -402,7 +391,6 @@ async def run_detection():
                     if last_person_detected_time is None:
                         last_person_detected_time = current_time
                         person_detected_notified = False
-                        print(f"✓ 人を安定検出（{person_count}人）")
                         
                         await broadcast_message({
                             "type": "person_detected",
@@ -412,7 +400,6 @@ async def run_detection():
                     
                     elif not person_detected_notified and (current_time - last_person_detected_time) >= 3.0:
                         person_detected_notified = True
-                        print("✓ 3秒経過 - 音声再生をトリガー")
                         
                         await broadcast_message({
                             "type": "play_audio",
@@ -424,7 +411,6 @@ async def run_detection():
                     stable_detection_count = 0
                     
                 if last_person_detected_time is not None:
-                    print("人が検出されなくなりました")
                     last_person_detected_time = None
                     person_detected_notified = False
             
@@ -466,8 +452,6 @@ async def websocket_detection(websocket: WebSocket):
     
     await websocket.accept()
     active_connections.add(websocket)
-    connection_id = str(id(websocket))
-    print(f"🔌 物体検出WebSocket接続: {connection_id}")
     
     if detector is not None and not detection_running:
         detection_running = True
@@ -484,7 +468,6 @@ async def websocket_detection(websocket: WebSocket):
     
     except WebSocketDisconnect:
         active_connections.remove(websocket)
-        print(f"🔌 物体検出WebSocket切断: {connection_id}")
         
         if len(active_connections) == 0:
             detection_running = False
@@ -496,7 +479,6 @@ async def websocket_detection(websocket: WebSocket):
 async def websocket_speech(websocket: WebSocket):
     await websocket.accept()
     connection_id = str(id(websocket))
-    print(f"🎤 音声認識WebSocket接続: {connection_id}")
     
     spotter = FastKeywordSpotter(connection_id)
     audio_buffers[connection_id] = spotter
@@ -525,7 +507,6 @@ async def websocket_speech(websocket: WebSocket):
                             result = spotter.process_audio_chunk(audio_float)
                             
                             if result:
-                                print(f"📤 送信: {result.get('text', '')}")
                                 await websocket.send_json(result)
                         
                         except Exception as e:
@@ -546,13 +527,12 @@ async def websocket_speech(websocket: WebSocket):
                     break
     
     except WebSocketDisconnect:
-        print(f"🎤 音声認識WebSocket切断: {connection_id}")
+        pass
     except Exception as e:
         print(f"音声認識WebSocketエラー: {e}")
     finally:
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]
-        print(f"🧹 クリーンアップ完了: {connection_id}")
 
 if __name__ == "__main__":
     import uvicorn
