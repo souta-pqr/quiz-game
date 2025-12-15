@@ -1,26 +1,36 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { RotateCcw } from 'lucide-react';
 
 const ResultScreen = ({ score, totalQuestions, answers = [], onRetry }) => {
   const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   
-  // 評価メッセージを決定
-  let message = '🎄 よく頑張りました！';
-  let emoji = '⛄';
-  
-  if (percentage === 100) {
-    message = '🎅 完璧です！素晴らしい！';
-    emoji = '🎉';
-  } else if (percentage >= 80) {
-    message = '⭐ とても良くできました！';
-    emoji = '✨';
-  } else if (percentage >= 60) {
-    message = '🎄 よく頑張りました！';
-    emoji = '🎄';
-  } else {
-    message = '⛄ もう一度挑戦してみましょう！';
-    emoji = '💪';
-  }
+  // エンディング音声を自動再生
+  useEffect(() => {
+    console.log('🎵 エンディング音声を再生します...');
+    
+    try {
+      const audio = new Audio('/end/ending.mp3');
+      audio.volume = 0.7; // 音量を70%に設定
+      
+      // 音声再生
+      audio.play().then(() => {
+        console.log('✓ エンディング音声の再生を開始しました');
+      }).catch(error => {
+        console.error('❌ エンディング音声再生エラー:', error);
+        // ユーザーインタラクションが必要な場合のフォールバック
+        console.log('⚠️ 自動再生がブロックされました。ユーザーアクションが必要です。');
+      });
+      
+      // クリーンアップ: コンポーネントがアンマウントされたら音声を停止
+      return () => {
+        console.log('🛑 エンディング音声を停止します');
+        audio.pause();
+        audio.currentTime = 0;
+      };
+    } catch (error) {
+      console.error('❌ エンディング音声ファイル読み込みエラー:', error);
+    }
+  }, []); // 空の依存配列で、マウント時のみ実行
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-700 via-green-700 to-red-800 flex items-center justify-center p-4 relative overflow-hidden">
@@ -40,8 +50,7 @@ const ResultScreen = ({ score, totalQuestions, answers = [], onRetry }) => {
         
         <div className="text-center mb-8 mt-8">
           {/* 結果表示 */}
-          <div className="text-8xl mb-6">{emoji}</div>
-          <h2 className="text-3xl font-bold text-red-700 mb-4">
+          <h2 className="text-3xl font-bold text-red-700 mb-6">
             クイズ終了！
           </h2>
           <div className="bg-gradient-to-r from-red-100 to-green-100 rounded-2xl p-6 mb-4 border-4 border-yellow-400">
@@ -52,9 +61,6 @@ const ResultScreen = ({ score, totalQuestions, answers = [], onRetry }) => {
               正答率: {percentage}%
             </p>
           </div>
-          <p className="text-xl font-bold text-gray-700 mb-6">
-            {message}
-          </p>
         </div>
 
         {/* 結果詳細（オプション） */}
