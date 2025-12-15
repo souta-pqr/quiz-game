@@ -18,6 +18,19 @@ const App = () => {
   const isProcessingRef = useRef(false);
   const audioPlayRequestRef = useRef(false);
 
+  // 正解/不正解の音声を再生
+  const playAnswerSound = useCallback((isCorrect) => {
+    try {
+      const audio = new Audio(isCorrect ? '/answer/correct.mp3' : '/answer/incorrect.mp3');
+      audio.volume = 0.7; // 音量を70%に設定
+      audio.play().catch(error => {
+        console.error('音声再生エラー:', error);
+      });
+    } catch (error) {
+      console.error('音声ファイル読み込みエラー:', error);
+    }
+  }, []);
+
   // 回答処理
   const handleAnswer = useCallback((userAnswer) => {
     if (isProcessingRef.current) {
@@ -28,6 +41,9 @@ const App = () => {
     
     const currentQuiz = quizData[currentQuestion];
     const isCorrect = userAnswer === currentQuiz.answer;
+    
+    // 正解/不正解の音声を再生
+    playAnswerSound(isCorrect);
     
     setLastAnswer({ isCorrect, userAnswer });
     setShowFeedback(true);
@@ -58,7 +74,7 @@ const App = () => {
         setGameState('finished');
       }
     }, 2000);
-  }, [currentQuestion]);
+  }, [currentQuestion, playAnswerSound]);
 
   // Whisper音声認識
   const {
