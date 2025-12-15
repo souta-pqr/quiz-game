@@ -4,28 +4,57 @@ import { RotateCcw } from 'lucide-react';
 const ResultScreen = ({ score, totalQuestions, answers = [], onRetry }) => {
   const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   
-  // エンディング音声を自動再生
+  // エンディング音声を自動再生してBPMを加速
   useEffect(() => {
     console.log('🎵 エンディング音声を再生します...');
     
+    let audio = null;
+    let accelerationInterval = null;
+    
     try {
-      const audio = new Audio('/end/ending.mp3');
+      audio = new Audio('/end/ending.mp3');
       audio.volume = 0.7; // 音量を70%に設定
+      audio.loop = true; // ループ再生
       
       // 音声再生
       audio.play().then(() => {
         console.log('✓ エンディング音声の再生を開始しました');
+        
+        // BPM加速: 1秒ごとに再生速度を10%ずつ上げる（目立つ加速）
+        let currentPlaybackRate = 1.0; // 初期速度（通常速度）
+        const accelerationStep = 0.10; // 加速ステップ（10%）
+        const accelerationIntervalTime = 1000; // 1秒ごと
+        const maxPlaybackRate = 2.5; // 最大2.5倍速まで
+        
+        accelerationInterval = setInterval(() => {
+          currentPlaybackRate += accelerationStep;
+          
+          if (currentPlaybackRate <= maxPlaybackRate) {
+            audio.playbackRate = currentPlaybackRate;
+            console.log(`🎵 再生速度を加速: ${(currentPlaybackRate * 100).toFixed(0)}%`);
+          } else {
+            // 最大速度に達したら加速を止める
+            audio.playbackRate = maxPlaybackRate;
+            clearInterval(accelerationInterval);
+            console.log(`🎵 最大速度 ${maxPlaybackRate}x に到達しました`);
+          }
+        }, accelerationIntervalTime);
+        
       }).catch(error => {
         console.error('❌ エンディング音声再生エラー:', error);
-        // ユーザーインタラクションが必要な場合のフォールバック
         console.log('⚠️ 自動再生がブロックされました。ユーザーアクションが必要です。');
       });
       
       // クリーンアップ: コンポーネントがアンマウントされたら音声を停止
       return () => {
         console.log('🛑 エンディング音声を停止します');
-        audio.pause();
-        audio.currentTime = 0;
+        if (accelerationInterval) {
+          clearInterval(accelerationInterval);
+        }
+        if (audio) {
+          audio.pause();
+          audio.currentTime = 0;
+        }
       };
     } catch (error) {
       console.error('❌ エンディング音声ファイル読み込みエラー:', error);
