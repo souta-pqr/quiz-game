@@ -55,17 +55,24 @@ const App = () => {
   // 回答処理
   const handleAnswer = useCallback((userAnswer) => {
     if (isProcessingRef.current) {
+      console.log('⏸️ 既に処理中のため、回答をスキップ');
       return;
     }
     
+    console.log(`📝 回答受付: ${userAnswer ? 'まる' : 'ばつ'}`);
     isProcessingRef.current = true;
     
     const currentQuiz = quizData[currentQuestion];
     const isCorrect = userAnswer === currentQuiz.answer;
     
+    // 回答直後に回答者画像をクリア
+    setRespondentImage(null);
+    console.log('🧹 回答者画像をクリア');
+    
     // 正解/不正解の音声を再生
     playAnswerSound(isCorrect);
     
+    // 状態を一括更新
     setLastAnswer({ isCorrect, userAnswer });
     setShowFeedback(true);
 
@@ -83,23 +90,30 @@ const App = () => {
     }
 
     // 解説表示時間（2秒）
-    setTimeout(async () => {
+    setTimeout(() => {
+      console.log('📖 解説表示終了');
       setShowFeedback(false);
-      isProcessingRef.current = false;
+      setLastAnswer(null);
       
       // 次の問題があるかチェック
       const nextQuestion = currentQuestion + 1;
       if (nextQuestion < quizData.length) {
-        // 回答者画像をクリア
-        setRespondentImage(null);
+        console.log(`➡️ 次の問題へ移行: ${nextQuestion + 1}/${quizData.length}`);
         
-        // モーター再開（3秒待機が含まれる）
-        await resumeMotor();
+        // モーター再開を非同期で実行
+        resumeMotor().then(() => {
+          console.log('✅ モーター再開完了');
+        });
         
-        // 次の問題へ
-        setCurrentQuestion(nextQuestion);
+        // 状態更新を確実に実行
+        setTimeout(() => {
+          setCurrentQuestion(nextQuestion);
+          isProcessingRef.current = false;
+          console.log(`✨ 問題${nextQuestion + 1}を表示`);
+        }, 100);
       } else {
-        // クイズ終了
+        console.log('🎉 クイズ終了');
+        isProcessingRef.current = false;
         setGameState('finished');
       }
     }, 2000);
@@ -131,10 +145,11 @@ const App = () => {
 
   // 人検出時のコールバック（回答者画像を受信）
   const handlePersonSelected = useCallback((snapshot) => {
-    console.log('👤 回答者選択:', snapshot ? 'あり' : 'なし');
+    console.log('👤 回答者選択完了');
     setRespondentImage(snapshot);
     
     // 音声を自動再生
+    console.log('🎵 問題音声を自動再生');
     handlePlayAudioTrigger();
   }, [handlePlayAudioTrigger]);
 
@@ -168,21 +183,26 @@ const App = () => {
   useEffect(() => {
     if (showFeedback) {
       if (isWhisperListening) {
+        console.log('⏸️ フィードバック表示中：音声認識を一時停止');
         stopWhisperListening();
       }
-    } else {
+    } else if (gameState === 'playing') {
+      // フィードバック終了後、少し待ってから再開
       const restartTimer = setTimeout(() => {
         if (!isWhisperListening && isWhisperSupported && isWhisperConnected) {
+          console.log('▶️ 音声認識を再開');
           startWhisperListening();
         }
-      }, 500);
+      }, 300);
       
       return () => clearTimeout(restartTimer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showFeedback, isWhisperListening, isWhisperSupported, isWhisperConnected]);
+  }, [showFeedback, gameState]);
 
   const resetGame = useCallback(() => {
+    console.log('🔄 ゲームをリセット中...');
+    
+    // すべての状態をクリア
     setShowFeedback(false);
     setLastAnswer(null);
     setRespondentImage(null);
@@ -190,15 +210,20 @@ const App = () => {
     audioPlayRequestRef.current = false;
     setShouldPlayAudio(false);
     
-    setTimeout(async () => {
+    // 少し待ってから初期化
+    setTimeout(() => {
       setCurrentQuestion(0);
       setScore(0);
       setAnswers([]);
       setGameState('playing');
       clearWhisperHistory();
       
+      console.log('✅ ゲームリセット完了');
+      
       // モーター再開
-      await resumeMotor();
+      resumeMotor().then(() => {
+        console.log('✅ モーター再開完了');
+      });
     }, 100);
   }, [clearWhisperHistory, resumeMotor]);
 
