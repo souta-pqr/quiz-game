@@ -423,25 +423,57 @@ class MotorController:
             self.rotation_interrupted = False
     
     def get_random_rotation(self):
-        """ランダムな方向にランダムな時間分、回転"""
+        """ランダムな時間・方向でモーターを回転（単体で完結）"""
         import random
         
+        # ランダムな時間と方向を決定
+        random_duration = random.uniform(0.1, 0.7)
+        random_direction_cw = random.choice([True, False])
+        
+        direction_name = "CW" if random_direction_cw else "CCW"
+        print(f"🎲 ランダム回転開始: {direction_name}方向, {random_duration:.2f}秒")
+        
         with self.lock:
-            # ランダムな回転時間を設定（0.5～1.7秒）
-            random_duration = random.uniform(0.5, 1.7)
-            self.half_rotation_time = random_duration
+            # 初期化チェック
+            if not self.is_initialized or self._is_running:
+                print("⚠️ モーターが使用できません")
+                return False
             
-            # ランダムな回転方向を設定（True=CW, False=CCW）
-            self.current_direction_cw = random.choice([True, False])
-            
-            # 状態をリセット
+            self._is_running = True
+            self._emergency_stop_requested = False
             self.elapsed_time = 0.0
             self.rotation_interrupted = False
+        
+        # ランダムな時間分回転を実行
+        start_time = time.time()
+        while time.time() - start_time < random_duration:
+            with self.lock:
+                if self._emergency_stop_requested:
+                    self._perform_emergency_stop()
+                    return False
             
-            direction_name = "CW" if self.current_direction_cw else "CCW"
-            print(f"🎲 ランダム回転設定: {direction_name}方向, {random_duration:.2f}秒")
+            # 1ステップ実行
+            if not self._execute_step_with_check(random_direction_cw):
+                with self.lock:
+                    self._is_running = False
+                return False
             
-            return random_duration, self.current_direction_cw
+            with self.lock:
+                self.elapsed_time = time.time() - start_time
+        
+        # 正常停止
+        with self.lock:
+            if GPIO_AVAILABLE:
+                GPIOWrapper.output(RUN_BRAKE, OFF)
+                time.sleep(0.1)
+                GPIOWrapper.output(START_STOP, OFF)
+            
+            self._is_running = False
+            self.direction = "STOP"
+            self.rotation_start_time = None
+            print(f"✓ ランダム回転完了: {self.elapsed_time:.2f}秒")
+        
+        return True
 
 def initialize_vosk():
     """Vosk初期化"""
