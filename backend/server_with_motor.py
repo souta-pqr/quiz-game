@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-クイズゲーム用モーター制御統合サーバー
+クイズゲーム用モーター制御統合サーバー (Raspberry Pi 5対応版)
 """
 
 import asyncio
@@ -20,24 +20,146 @@ from collections import deque
 from vosk import Model, KaldiRecognizer
 import threading
 
-# GPIO制御のインポート（Raspberry Piの場合のみ）
+# GPIO制御のインポート（Raspberry Pi 5対応）
+GPIO_AVAILABLE = False
+GPIO_LIBRARY = None
+
+# まずrpi-lgpioを試す（Raspberry Pi 5推奨）
 try:
     import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
+    # Raspberry Pi 5チェック
+    try:
+        GPIO.setmode(GPIO.BCM)
+        GPIO_AVAILABLE = True
+        GPIO_LIBRARY = "RPi.GPIO"
+        print("✓ RPi.GPIOを使用します")
+    except Exception as e:
+        if "SOC peripheral" in str(e):
+            # Raspberry Pi 5エラー - lgpioに切り替え
+            print(f"⚠️ RPi.GPIOはRaspberry Pi 5で動作しません: {e}")
+            GPIO_AVAILABLE = False
+        else:
+            raise
 except ImportError:
-    GPIO_AVAILABLE = False
-    print("⚠️ RPi.GPIOが利用できません。ダミーモードで動作します。")
+    print("⚠️ RPi.GPIOがインポートできません")
+
+# RPi.GPIOが使えない場合、lgpioを試す
+if not GPIO_AVAILABLE:
+    try:
+        import lgpio
+        GPIO_AVAILABLE = True
+        GPIO_LIBRARY = "lgpio"
+        print("✓ lgpioライブラリを使用します (Raspberry Pi 5対応)")
+    except ImportError:
+        print("⚠️ lgpioが利用できません。ダミーモードで動作します。")
+        print("  インストール: pip install rpi-lgpio")
 
 # ===================================
-# GPIO設定（Raspberry Pi用）
+# GPIO設定
 # ===================================
 START_STOP = 24
 RUN_BRAKE = 12
 CW_CCW = 14
 INT_VR_EXT = 1
 
-ON = 0 if GPIO_AVAILABLE else None
-OFF = 1 if GPIO_AVAILABLE else None
+ON = 0
+OFF = 1
+
+# lgpio用のハンドル
+lgpio_handle = None
+
+# ===================================
+# GPIO抽象化レイヤー
+# ===================================
+class GPIOWrapper:
+    """GPIO操作の抽象化クラス"""
+    
+    @staticmethod
+    def setup_pins():
+        """GPIOピンのセットアップ"""
+        global lgpio_handle
+        
+        if not GPIO_AVAILABLE:
+            return True
+        
+        if GPIO_LIBRARY == "RPi.GPIO":
+            try:
+                GPIO.setup(START_STOP, GPIO.OUT)
+                GPIO.setup(RUN_BRAKE, GPIO.OUT)
+                GPIO.setup(CW_CCW, GPIO.OUT)
+                GPIO.setup(INT_VR_EXT, GPIO.OUT)
+                print("✓ RPi.GPIO ピンセットアップ完了")
+                return True
+            except Exception as e:
+                print(f"❌ RPi.GPIO セットアップエラー: {e}")
+                return False
+        
+        elif GPIO_LIBRARY == "lgpio":
+            try:
+                # gpiochip4 を開く（Raspberry Pi 5）
+                lgpio_handle = lgpio.gpiochip_open(4)
+                
+                # 出力として設定
+                lgpio.gpio_claim_output(lgpio_handle, START_STOP)
+                lgpio.gpio_claim_output(lgpio_handle, RUN_BRAKE)
+                lgpio.gpio_claim_output(lgpio_handle, CW_CCW)
+                lgpio.gpio_claim_output(lgpio_handle, INT_VR_EXT)
+                
+                print("✓ lgpio ピンセットアップ完了 (gpiochip4)")
+                return True
+            except Exception as e:
+                print(f"❌ lgpio セットアップエラー: {e}")
+                # gpiochip0を試す
+                try:
+                    lgpio_handle = lgpio.gpiochip_open(0)
+                    lgpio.gpio_claim_output(lgpio_handle, START_STOP)
+                    lgpio.gpio_claim_output(lgpio_handle, RUN_BRAKE)
+                    lgpio.gpio_claim_output(lgpio_handle, CW_CCW)
+                    lgpio.gpio_claim_output(lgpio_handle, INT_VR_EXT)
+                    print("✓ lgpio ピンセットアップ完了 (gpiochip0)")
+                    return True
+                except Exception as e2:
+                    print(f"❌ lgpio (gpiochip0) セットアップエラー: {e2}")
+                    return False
+        
+        return False
+    
+    @staticmethod
+    def output(pin, value):
+        """GPIO出力"""
+        if not GPIO_AVAILABLE:
+            return
+        
+        if GPIO_LIBRARY == "RPi.GPIO":
+            GPIO.output(pin, GPIO.LOW if value == ON else GPIO.HIGH)
+        
+        elif GPIO_LIBRARY == "lgpio":
+            if lgpio_handle is not None:
+                lgpio.gpio_write(lgpio_handle, pin, value)
+    
+    @staticmethod
+    def cleanup():
+        """GPIOクリーンアップ"""
+        global lgpio_handle
+        
+        if not GPIO_AVAILABLE:
+            return
+        
+        if GPIO_LIBRARY == "RPi.GPIO":
+            try:
+                GPIO.cleanup()
+                print("✓ RPi.GPIO クリーンアップ完了")
+            except:
+                pass
+        
+        elif GPIO_LIBRARY == "lgpio":
+            if lgpio_handle is not None:
+                try:
+                    lgpio.gpiochip_close(lgpio_handle)
+                    lgpio_handle = None
+                    print("✓ lgpio クリーンアップ完了")
+                except:
+                    pass
 
 # ===================================
 # モーター設定
@@ -67,7 +189,7 @@ motor_state_lock = threading.RLock()
 
 
 class MotorController:
-    """BLHモーター制御クラス"""
+    """BLHモーター制御クラス (GPIO抽象化版)"""
     
     def __init__(self, half_rotation_time=HALF_ROTATION_TIME):
         self.is_initialized = False
@@ -100,11 +222,15 @@ class MotorController:
         print("🔧 モーター初期化中...")
         try:
             if GPIO_AVAILABLE:
-                GPIO.output(START_STOP, OFF)
-                GPIO.output(RUN_BRAKE, OFF)
-                GPIO.output(CW_CCW, OFF)
-                GPIO.output(INT_VR_EXT, ON)
+                # GPIO初期設定を実行
+                GPIOWrapper.output(START_STOP, OFF)
+                GPIOWrapper.output(RUN_BRAKE, OFF)
+                GPIOWrapper.output(CW_CCW, OFF)
+                GPIOWrapper.output(INT_VR_EXT, ON)
                 time.sleep(0.5)
+                print("✓ GPIO出力設定完了")
+            else:
+                print("ℹ️ ダミーモードで初期化")
             
             with self.lock:
                 self.is_initialized = True
@@ -127,11 +253,11 @@ class MotorController:
         
         try:
             if GPIO_AVAILABLE:
-                GPIO.output(CW_CCW, ON if is_cw else OFF)
+                GPIOWrapper.output(CW_CCW, ON if is_cw else OFF)
                 time.sleep(0.01)
-                GPIO.output(START_STOP, ON)
+                GPIOWrapper.output(START_STOP, ON)
                 time.sleep(0.01)
-                GPIO.output(RUN_BRAKE, ON)
+                GPIOWrapper.output(RUN_BRAKE, ON)
             
             # 回転時間
             rotation_steps = 6
@@ -141,16 +267,16 @@ class MotorController:
                 with self.lock:
                     if self._emergency_stop_requested:
                         if GPIO_AVAILABLE:
-                            GPIO.output(RUN_BRAKE, OFF)
+                            GPIOWrapper.output(RUN_BRAKE, OFF)
                             time.sleep(0.01)
-                            GPIO.output(START_STOP, OFF)
+                            GPIOWrapper.output(START_STOP, OFF)
                         return False
                 time.sleep(step_interval)
             
             if GPIO_AVAILABLE:
-                GPIO.output(RUN_BRAKE, OFF)
+                GPIOWrapper.output(RUN_BRAKE, OFF)
                 time.sleep(0.01)
-                GPIO.output(START_STOP, OFF)
+                GPIOWrapper.output(START_STOP, OFF)
             
             # 停止時間
             pause_steps = 10
@@ -235,9 +361,9 @@ class MotorController:
             print(f"🛑 緊急停止実行中...")
             
             if GPIO_AVAILABLE:
-                GPIO.output(RUN_BRAKE, OFF)
+                GPIOWrapper.output(RUN_BRAKE, OFF)
                 time.sleep(0.1)
-                GPIO.output(START_STOP, OFF)
+                GPIOWrapper.output(START_STOP, OFF)
             
             self.rotation_interrupted = True
             self._emergency_stop_requested = False
@@ -256,9 +382,9 @@ class MotorController:
             try:
                 print("⏹ 正常停止")
                 if GPIO_AVAILABLE:
-                    GPIO.output(RUN_BRAKE, OFF)
+                    GPIOWrapper.output(RUN_BRAKE, OFF)
                     time.sleep(0.1)
-                    GPIO.output(START_STOP, OFF)
+                    GPIOWrapper.output(START_STOP, OFF)
                 
                 self.rotation_interrupted = False
                 self._reset_state_after_stop()
@@ -539,32 +665,27 @@ def initialize_motor():
     global motor_controller
     
     if GPIO_AVAILABLE:
-        try:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(START_STOP, GPIO.OUT)
-            GPIO.setup(RUN_BRAKE, GPIO.OUT)
-            GPIO.setup(CW_CCW, GPIO.OUT)
-            GPIO.setup(INT_VR_EXT, GPIO.OUT)
-            print("✓ GPIO初期化完了")
-        except Exception as e:
-            print(f"❌ GPIO初期化エラー: {e}")
+        if not GPIOWrapper.setup_pins():
+            print("❌ GPIOピンのセットアップに失敗しました")
     
     motor_controller = MotorController()
-    motor_controller.initialize()
+    
+    try:
+        motor_controller.initialize()
+    except Exception as e:
+        print(f"⚠️ モーター初期化に失敗しましたが、続行します: {e}")
 
 def cleanup_motor():
     """モータークリーンアップ"""
     global motor_controller
     
     if motor_controller:
-        motor_controller.normal_stop()
-    
-    if GPIO_AVAILABLE:
         try:
-            GPIO.cleanup()
-            print("✓ GPIO クリーンアップ完了")
+            motor_controller.normal_stop()
         except:
             pass
+    
+    GPIOWrapper.cleanup()
 
 def initialize_detector():
     """物体検出初期化"""
@@ -577,7 +698,7 @@ def initialize_detector():
         model_path = os.path.join(script_dir, 'model', 'nanodet_m_320.onnx')
         
         if not os.path.exists(model_path):
-            print(f"⚠️ 物体検出モデルが見つかりません")
+            print(f"⚠️ 物体検出モデルが見つかりません: {model_path}")
             return
         
         detector = NanoDetONNX(
@@ -605,7 +726,8 @@ async def run_detection():
     """物体検出ループ（モーター制御統合版）"""
     global detection_running, motor_state
     
-    if detector is None or motor_controller is None:
+    if detector is None or motor_controller is None or not motor_controller.is_initialized:
+        print("⚠️ 検出またはモーターが初期化されていません")
         return
     
     cap = cv2.VideoCapture(0)
@@ -613,10 +735,10 @@ async def run_detection():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
     if not cap.isOpened():
-        print("カメラを開けませんでした")
+        print("❌ カメラを開けませんでした")
         return
     
-    print("物体検出を開始しました")
+    print("✓ 物体検出を開始しました")
     person_class_id = 0
     stable_detection_count = 0
     STABLE_THRESHOLD = 3
@@ -709,7 +831,7 @@ async def run_detection():
     
     finally:
         cap.release()
-        print("物体検出を停止しました")
+        print("✓ 物体検出を停止しました")
 
 @app.get("/")
 async def root():
@@ -719,7 +841,8 @@ async def root():
             "detection": "/ws/detection",
             "speech": "/ws/speech"
         },
-        "motor_ready": motor_controller is not None,
+        "gpio_library": GPIO_LIBRARY if GPIO_AVAILABLE else "dummy",
+        "motor_ready": motor_controller is not None and motor_controller.is_initialized,
         "vosk_ready": vosk_model is not None,
         "vad_ready": vad_model is not None,
         "detector_ready": detector is not None
@@ -735,7 +858,9 @@ async def status():
             "motor_stopped_for_answer": motor_state["is_stopped_for_answer"],
             "vosk_model_loaded": vosk_model is not None,
             "vad_model_loaded": vad_model is not None,
-            "detector_loaded": detector is not None
+            "detector_loaded": detector is not None,
+            "motor_initialized": motor_controller is not None and motor_controller.is_initialized,
+            "gpio_library": GPIO_LIBRARY if GPIO_AVAILABLE else "dummy"
         }
 
 @app.post("/motor/resume")
@@ -753,7 +878,7 @@ async def resume_motor():
             # 少し待機してから再開（同じ人の再検出を避ける）
             await asyncio.sleep(3.0)
             
-            if not motor_controller.is_running:
+            if not motor_controller.is_running and motor_controller.is_initialized:
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
                 motor_state["is_running"] = True
@@ -770,7 +895,7 @@ async def websocket_detection(websocket: WebSocket):
     await websocket.accept()
     active_connections.add(websocket)
     
-    if detector is not None and motor_controller is not None and not detection_running:
+    if detector is not None and motor_controller is not None and motor_controller.is_initialized and not detection_running:
         detection_running = True
         
         # モーター初回起動
@@ -857,4 +982,3 @@ async def websocket_speech(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-  
