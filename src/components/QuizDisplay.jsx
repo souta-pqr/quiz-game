@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Check, X } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
 
-const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = false }) => {
+const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = false, respondentImage = null }) => {
   // quizがundefinedの場合のガード
   if (!quiz) {
     return (
@@ -50,6 +50,29 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
           <div className="absolute -top-3 -right-3 text-3xl animate-pulse">⭐</div>
           <div className="absolute -bottom-3 -left-3 text-2xl">🎁</div>
           <div className="absolute -bottom-3 -right-3 text-2xl">🎁</div>
+          
+          {/* 回答者画像がある場合は横に表示 */}
+          {respondentImage && (
+            <div className="mb-4 flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <div className="relative">
+                  <img 
+                    src={`data:image/jpeg;base64,${respondentImage}`} 
+                    alt="回答者" 
+                    className="w-32 h-32 rounded-xl border-4 border-yellow-400 shadow-lg object-cover"
+                  />
+                  <div className="absolute -top-2 -right-2 bg-yellow-400 text-red-700 font-bold px-2 py-1 rounded-full text-xs border-2 border-red-600 animate-pulse">
+                    👤 回答者
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center bg-yellow-50 rounded-lg p-3 border-2 border-yellow-400">
+                <p className="text-lg font-bold text-red-700 text-center">
+                  🎉 あなたが回答者です！🎉
+                </p>
+              </div>
+            </div>
+          )}
           
           <p className="text-xl font-bold text-gray-800 text-center leading-relaxed mb-4 relative z-10">
             {quiz.question}
