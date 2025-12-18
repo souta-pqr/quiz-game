@@ -19,10 +19,19 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
   // 物体検出からのトリガーで音声再生
   useEffect(() => {
     if (shouldPlayAudio && audioPlayerRef.current) {
-      console.log('物体検出トリガーにより音声を再生します');
+      console.log('🔊 物体検出トリガーにより音声を再生します');
       audioPlayerRef.current.play();
     }
   }, [shouldPlayAudio]);
+
+  // 回答者画像の状態をログ
+  useEffect(() => {
+    if (respondentImage) {
+      console.log('📷 回答者画像を表示');
+    } else {
+      console.log('🧹 回答者画像なし');
+    }
+  }, [respondentImage]);
 
   return (
     <>
