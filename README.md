@@ -4,7 +4,6 @@
 
 ### 必要なもの
 
-- Raspberry Pi 5（Ubuntu 24.04 ARM64）
 - Node.js 16以上
 - Python 3.8以上
 - USBカメラ
