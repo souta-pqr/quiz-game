@@ -183,7 +183,8 @@ motor_state = {
     "is_running": False,
     "is_stopped_for_answer": False,
     "snapshot_image": None,
-    "detection_timestamp": None
+    "detection_timestamp": None，
+    "random_turn": False
 }
 motor_state_lock = threading.RLock()
 
@@ -427,7 +428,7 @@ class MotorController:
         import random
         
         # ランダムな時間と方向を決定
-        random_duration = random.uniform(0.1, 0.7)
+        random_duration = random.uniform(0.5, 1.0)
         random_direction_cw = random.choice([True, False])
         
         direction_name = "CW" if random_direction_cw else "CCW"
@@ -853,6 +854,7 @@ async def run_detection():
                         
                         # 回答待ち状態に移行
                         motor_state["is_stopped_for_answer"] = True
+                        motor_state["random_turn"] = True
                         stable_detection_count = 0
                 
                 else:
@@ -865,8 +867,6 @@ async def run_detection():
                             # 中断からの復帰
                             pass
                         else:
-                            # モーターの回転をランダムにする
-                            motor_controller.get_random_rotation()
                             # 次の回転を開始
                             motor_controller.get_next_rotation_direction()
                             time.sleep(0.5)
@@ -931,9 +931,13 @@ async def resume_motor():
             
             # 少し待機してから再開（同じ人の再検出を避ける）
             await asyncio.sleep(3.0)
+
+            if motor_controller.random_turn:
+                motor_controller.get_random_rotation()
+                motor_state["random_turn"] = False
+                return {"status": "resumed"}
             
             if not motor_controller.is_running and motor_controller.is_initialized:
-                motor_controller.get_random_rotation()
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
                 motor_state["is_running"] = True
