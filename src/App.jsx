@@ -62,62 +62,72 @@ const App = () => {
     console.log(`📝 回答受付: ${userAnswer ? 'まる' : 'ばつ'}`);
     isProcessingRef.current = true;
     
-    const currentQuiz = quizData[currentQuestion];
-    const isCorrect = userAnswer === currentQuiz.answer;
-    
-    // 回答直後に回答者画像をクリア
-    setRespondentImage(null);
-    console.log('🧹 回答者画像をクリア');
-    
-    // 正解/不正解の音声を再生
-    playAnswerSound(isCorrect);
-    
-    // 状態を一括更新
-    setLastAnswer({ isCorrect, userAnswer });
-    setShowFeedback(true);
-
-    const newAnswer = {
-      questionId: currentQuiz.id,
-      userAnswer,
-      isCorrect,
-      question: currentQuiz.question
-    };
-    
-    setAnswers(prev => [...prev, newAnswer]);
-    
-    if (isCorrect) {
-      setScore(prev => prev + 1);
-    }
-
-    // 解説表示時間（2秒）
-    setTimeout(() => {
-      console.log('📖 解説表示終了');
-      setShowFeedback(false);
-      setLastAnswer(null);
+    // 現在の問題番号を取得（関数型更新で最新の値を確実に取得）
+    setCurrentQuestion(prevQuestion => {
+      console.log(`📍 現在の問題: ${prevQuestion + 1}/${quizData.length}`);
       
-      // 次の問題があるかチェック
-      const nextQuestion = currentQuestion + 1;
-      if (nextQuestion < quizData.length) {
-        console.log(`➡️ 次の問題へ移行: ${nextQuestion + 1}/${quizData.length}`);
-        
-        // モーター再開を非同期で実行
-        resumeMotor().then(() => {
-          console.log('✅ モーター再開完了');
-        });
-        
-        // 状態更新を確実に実行
-        setTimeout(() => {
-          setCurrentQuestion(nextQuestion);
-          isProcessingRef.current = false;
-          console.log(`✨ 問題${nextQuestion + 1}を表示`);
-        }, 100);
-      } else {
-        console.log('🎉 クイズ終了');
-        isProcessingRef.current = false;
-        setGameState('finished');
+      const currentQuiz = quizData[prevQuestion];
+      const isCorrect = userAnswer === currentQuiz.answer;
+      
+      // 回答直後に回答者画像をクリア
+      setRespondentImage(null);
+      console.log('🧹 回答者画像をクリア');
+      
+      // 正解/不正解の音声を再生
+      playAnswerSound(isCorrect);
+      
+      // 状態を一括更新
+      setLastAnswer({ isCorrect, userAnswer });
+      setShowFeedback(true);
+
+      const newAnswer = {
+        questionId: currentQuiz.id,
+        userAnswer,
+        isCorrect,
+        question: currentQuiz.question
+      };
+      
+      setAnswers(prev => [...prev, newAnswer]);
+      
+      if (isCorrect) {
+        setScore(prev => prev + 1);
       }
-    }, 2000);
-  }, [currentQuestion, playAnswerSound, resumeMotor]);
+
+      // 解説表示時間（2秒）
+      setTimeout(() => {
+        console.log('📖 解説表示終了');
+        setShowFeedback(false);
+        setLastAnswer(null);
+        
+        // 次の問題があるかチェック
+        const nextQuestion = prevQuestion + 1;
+        console.log(`🔍 次の問題判定: nextQuestion=${nextQuestion}, total=${quizData.length}`);
+        
+        if (nextQuestion < quizData.length) {
+          console.log(`➡️ 次の問題へ移行: ${nextQuestion + 1}/${quizData.length}`);
+          
+          // モーター再開を非同期で実行
+          resumeMotor().then(() => {
+            console.log('✅ モーター再開完了');
+          });
+          
+          // 状態更新を確実に実行
+          setTimeout(() => {
+            setCurrentQuestion(nextQuestion);
+            isProcessingRef.current = false;
+            console.log(`✨ 問題${nextQuestion + 1}を表示、処理フラグリセット`);
+          }, 100);
+        } else {
+          console.log(`🎉 クイズ終了（全${quizData.length}問完了）`);
+          isProcessingRef.current = false;
+          setGameState('finished');
+        }
+      }, 2000);
+      
+      // 現在の問題番号は変更しない（setTimeoutで後で変更）
+      return prevQuestion;
+    });
+  }, [playAnswerSound, resumeMotor]);
 
   // Whisper音声認識
   const {
