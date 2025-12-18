@@ -16,7 +16,6 @@ const App = () => {
   const [lastAnswer, setLastAnswer] = useState(null);
   const [shouldPlayAudio, setShouldPlayAudio] = useState(false);
   const [respondentImage, setRespondentImage] = useState(null); // 回答者画像
-  const [showRespondentSelection, setShowRespondentSelection] = useState(false); // 回答者選択表示
   const isProcessingRef = useRef(false);
   const audioPlayRequestRef = useRef(false);
 
@@ -60,9 +59,6 @@ const App = () => {
     }
     
     isProcessingRef.current = true;
-    
-    // 回答者選択表示を非表示
-    setShowRespondentSelection(false);
     
     const currentQuiz = quizData[currentQuestion];
     const isCorrect = userAnswer === currentQuiz.answer;
@@ -137,9 +133,8 @@ const App = () => {
   const handlePersonSelected = useCallback((snapshot) => {
     console.log('👤 回答者選択:', snapshot ? 'あり' : 'なし');
     setRespondentImage(snapshot);
-    setShowRespondentSelection(true);
     
-    // 音声を再生
+    // 音声を自動再生
     handlePlayAudioTrigger();
   }, [handlePlayAudioTrigger]);
 
@@ -148,7 +143,7 @@ const App = () => {
   // キーボードイベント
   useEffect(() => {
     const handleKeyPress = (event) => {
-      if (showFeedback || gameState !== 'playing' || showRespondentSelection) {
+      if (showFeedback || gameState !== 'playing') {
         return;
       }
 
@@ -167,11 +162,11 @@ const App = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, [handleAnswer, showFeedback, gameState, showRespondentSelection]);
+  }, [handleAnswer, showFeedback, gameState]);
 
   // フィードバック中は音声認識を一時停止
   useEffect(() => {
-    if (showFeedback || showRespondentSelection) {
+    if (showFeedback) {
       if (isWhisperListening) {
         stopWhisperListening();
       }
@@ -185,13 +180,12 @@ const App = () => {
       return () => clearTimeout(restartTimer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showFeedback, showRespondentSelection, isWhisperListening, isWhisperSupported, isWhisperConnected]);
+  }, [showFeedback, isWhisperListening, isWhisperSupported, isWhisperConnected]);
 
   const resetGame = useCallback(() => {
     setShowFeedback(false);
     setLastAnswer(null);
     setRespondentImage(null);
-    setShowRespondentSelection(false);
     isProcessingRef.current = false;
     audioPlayRequestRef.current = false;
     setShouldPlayAudio(false);
@@ -250,42 +244,6 @@ const App = () => {
         <div className="absolute top-2/3 right-1/3 text-white text-2xl animate-bounce">🎁</div>
       </div>
       
-      {/* 回答者選択表示（オーバーレイ） */}
-      {showRespondentSelection && respondentImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-75 animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full text-center border-8 border-yellow-400 relative">
-            {/* 装飾 */}
-            <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-6xl animate-bounce">👆</div>
-            
-            {/* 回答者画像 */}
-            <div className="mb-6">
-              <img 
-                src={`data:image/jpeg;base64,${respondentImage}`} 
-                alt="回答者" 
-                className="w-full h-auto rounded-2xl border-4 border-red-600 shadow-lg"
-              />
-            </div>
-            
-            {/* メッセージ */}
-            <div className="bg-gradient-to-r from-yellow-100 to-orange-100 rounded-xl p-6 mb-4 border-4 border-yellow-500">
-              <p className="text-4xl font-black text-red-700 mb-2 animate-pulse">
-                あなたが回答者です！
-              </p>
-              <p className="text-xl text-gray-700 font-bold">
-                準備はいいですか？
-              </p>
-            </div>
-            
-            {/* 装飾 */}
-            <div className="flex justify-center gap-4 text-4xl">
-              <span className="animate-bounce">🎉</span>
-              <span className="animate-pulse">⭐</span>
-              <span className="animate-bounce" style={{animationDelay: '0.2s'}}>🎉</span>
-            </div>
-          </div>
-        </div>
-      )}
-      
       <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative border-8 border-red-600" style={{
         backgroundImage: 'linear-gradient(to bottom, #ffffff 0%, #fff5f5 100%)',
         boxShadow: '0 0 40px rgba(255, 0, 0, 0.3), inset 0 0 20px rgba(0, 255, 0, 0.1)'
@@ -331,6 +289,7 @@ const App = () => {
           showFeedback={showFeedback}
           lastAnswer={lastAnswer}
           shouldPlayAudio={shouldPlayAudio}
+          respondentImage={respondentImage}
         />
 
         {/* Whisper音声認識 */}
@@ -338,7 +297,7 @@ const App = () => {
           isListening={isWhisperListening}
           recognizedText={whisperRecognizedText}
           recognitionHistory={recognitionHistory}
-          disabled={showFeedback || showRespondentSelection}
+          disabled={showFeedback}
           isSupported={isWhisperSupported}
           isConnected={isWhisperConnected}
           debugInfo={whisperDebugInfo}
@@ -351,7 +310,7 @@ const App = () => {
         <div className="flex gap-4 mb-4">
           <button
             onClick={() => handleAnswer(true)}
-            disabled={showFeedback || showRespondentSelection}
+            disabled={showFeedback}
             className="flex-1 bg-gradient-to-br from-green-500 to-green-700 text-white py-4 rounded-xl font-bold text-xl hover:from-green-600 hover:to-green-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl border-4 border-green-300"
             style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}
           >
@@ -362,7 +321,7 @@ const App = () => {
           </button>
           <button
             onClick={() => handleAnswer(false)}
-            disabled={showFeedback || showRespondentSelection}
+            disabled={showFeedback}
             className="flex-1 bg-gradient-to-br from-red-500 to-red-700 text-white py-4 rounded-xl font-bold text-xl hover:from-red-600 hover:to-red-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl border-4 border-red-300"
             style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}
           >
