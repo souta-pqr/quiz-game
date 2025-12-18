@@ -421,7 +421,27 @@ class MotorController:
             
             self.elapsed_time = 0.0
             self.rotation_interrupted = False
-
+    
+    def get_random_rotation(self):
+        """ランダムな方向にランダムな時間分、回転"""
+        import random
+        
+        with self.lock:
+            # ランダムな回転時間を設定（0.5～1.7秒）
+            random_duration = random.uniform(0.5, 1.7)
+            self.half_rotation_time = random_duration
+            
+            # ランダムな回転方向を設定（True=CW, False=CCW）
+            self.current_direction_cw = random.choice([True, False])
+            
+            # 状態をリセット
+            self.elapsed_time = 0.0
+            self.rotation_interrupted = False
+            
+            direction_name = "CW" if self.current_direction_cw else "CCW"
+            print(f"🎲 ランダム回転設定: {direction_name}方向, {random_duration:.2f}秒")
+            
+            return random_duration, self.current_direction_cw
 
 def initialize_vosk():
     """Vosk初期化"""
@@ -813,6 +833,8 @@ async def run_detection():
                             # 中断からの復帰
                             pass
                         else:
+                            # モーターの回転をランダムにする
+                            motor_controller.get_random_rotation()
                             # 次の回転を開始
                             motor_controller.get_next_rotation_direction()
                             time.sleep(0.5)
@@ -879,6 +901,7 @@ async def resume_motor():
             await asyncio.sleep(3.0)
             
             if not motor_controller.is_running and motor_controller.is_initialized:
+                motor_controller.get_random_rotation()
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
                 motor_state["is_running"] = True
