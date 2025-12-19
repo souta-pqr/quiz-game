@@ -2,14 +2,6 @@
 
 ## 🚀 セットアップ
 
-### 必要なもの
-
-- Node.js 16以上
-- Python 3.8以上
-- USBカメラ
-- マイク
-- スピーカー
-
 ### 1. Voskモデルのダウンロード
 
 ```bash
@@ -33,7 +25,7 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python server.py
+python server_with_motor.py
 ```
 
 ### 4. フロントエンドの起動
@@ -70,7 +62,7 @@ export const quizData = [
 
 ## 🙏 謝辞
 
-- [Vosk](https://alphacephei.com/vosk/) - 軽量音声認識
+- [Vosk](https://alphacephei.com/vosk/) - 音声認識
 - [Silero VAD](https://github.com/snakers4/silero-vad) - 音声区間検出
 - [NanoDet](https://github.com/RangiLyu/nanodet) - 物体検出
 - [VOICEVOX](https://voicevox.hiroshiba.jp/) - 音声合成

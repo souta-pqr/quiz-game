@@ -1,0 +1,259 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+音声認識モジュール
+Vosk + Silero VADによる高速キーワードスポッティング
+"""
+
+import os
+import json
+import numpy as np
+import torch
+from typing import Optional
+from collections import deque
+from vosk import Model, KaldiRecognizer
+
+
+# グローバル変数
+vosk_model = None
+vad_model = None
+SAMPLE_RATE = 16000
+
+
+def initialize_vosk():
+    """Vosk初期化"""
+    global vosk_model
+    
+    try:
+        # modules/ディレクトリの親ディレクトリ（backend/）を基準にする
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_path = os.path.join(script_dir, 'vosk-model-small-ja-0.22')
+        
+        if not os.path.exists(model_path):
+            print(f"⚠️ Voskモデルが見つかりません: {model_path}")
+            return
+        
+        print(f"Voskモデルを初期化中...")
+        vosk_model = Model(model_path)
+        print(f"✓ Vosk小モデルを初期化しました")
+        
+    except Exception as e:
+        print(f"✗ Voskモデルの初期化に失敗: {e}")
+
+
+def initialize_vad():
+    """VAD初期化"""
+    global vad_model
+    
+    try:
+        print("Silero VADモデルを初期化中...")
+        vad_model, utils = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False,
+            onnx=False
+        )
+        print("✓ Silero VADモデルを初期化しました")
+        
+    except Exception as e:
+        print(f"⚠️ Silero VADの初期化に失敗: {e}")
+
+
+def detect_answer_keyword(text: str) -> Optional[bool]:
+    """キーワード検出
+    
+    Args:
+        text: 認識されたテキスト
+        
+    Returns:
+        True: まる, False: ばつ, None: どちらでもない
+    """
+    text_lower = text.lower().replace(' ', '')
+    
+    maru_keywords = [
+        'まる', 'マル', '丸', 'まぁる', 'まーる', 'まっる', 'マァル', 'マール', 'マッル',
+        'まるる', 'まるん', 'マルル', 'マルン', 'まるっ', 'まるい', 'マルッ', 'マルイ',
+        '丸い', '丸っこ', '丸み', 'まぁ', 'まー', 'マァ', 'マー', 'まるまる', 'マルマル', 
+        '丸丸', '円', 'まろ', 'まろう', 'マロ', 'マロウ', '丸太', '丸子', 'まある', 'マアル', 'ある',
+    ]
+    for keyword in maru_keywords:
+        if keyword in text_lower or keyword in text:
+            return True
+    
+    batsu_keywords = [
+        'ばつ', 'バツ', '罰', 'ばっ', 'ばー', 'バッ', 'バー', 'ばっつ', 'ばーつ', 'バッツ', 
+        'バーツ', 'ぺけ', 'ペケ', 'ぺっけ', 'ペッケ', 'ばつばつ', 'バツバツ', '月', 'つき', 
+        'ツキ', 'はつ', 'ハツ', '初', '八', 'ぱつ', 'パツ', 'がつ',
+    ]
+    for keyword in batsu_keywords:
+        if keyword in text_lower or keyword in text:
+            return False
+    
+    return None
+
+
+class FastKeywordSpotter:
+    """高速キーワードスポッティング"""
+    
+    def __init__(self, connection_id: str):
+        self.connection_id = connection_id
+        self.sample_rate = SAMPLE_RATE
+        self.audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))
+        self.speech_buffer = []
+        self.is_speech = False
+        self.silence_duration = 0
+        
+        self.vad_threshold = 0.4
+        self.speech_pad_ms = 200
+        self.min_speech_duration = 0.25
+        self.max_speech_duration = 3.0
+        self.vad_chunk_size = 512
+        self.pending_samples = np.array([], dtype=np.float32)
+        
+        if vosk_model is not None:
+            self.recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+            self.recognizer.SetWords(True)
+            self.recognizer.SetPartialWords(True)
+        else:
+            self.recognizer = None
+    
+    def process_audio_chunk(self, audio_data: np.ndarray) -> Optional[dict]:
+        """音声チャンク処理"""
+        if vad_model is None or self.recognizer is None:
+            return None
+        
+        self.audio_buffer.extend(audio_data)
+        
+        combined_data = np.concatenate([self.pending_samples, audio_data])
+        num_full_chunks = len(combined_data) // self.vad_chunk_size
+        
+        for i in range(num_full_chunks):
+            start_idx = i * self.vad_chunk_size
+            end_idx = start_idx + self.vad_chunk_size
+            chunk = combined_data[start_idx:end_idx]
+            
+            result = self._process_vad_chunk(chunk)
+            if result:
+                return result
+        
+        remaining_start = num_full_chunks * self.vad_chunk_size
+        self.pending_samples = combined_data[remaining_start:]
+        
+        return None
+    
+    def _process_vad_chunk(self, chunk: np.ndarray) -> Optional[dict]:
+        """VADチャンク処理"""
+        audio_tensor = torch.from_numpy(chunk).float()
+        
+        try:
+            speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
+        except Exception as e:
+            return None
+        
+        is_speech_now = speech_prob > self.vad_threshold
+        
+        if is_speech_now and not self.is_speech:
+            # 音声開始
+            self.is_speech = True
+            self.silence_duration = 0
+            
+            pad_samples = int(SAMPLE_RATE * self.speech_pad_ms / 1000)
+            pad_data = list(self.audio_buffer)[-pad_samples:] if len(self.audio_buffer) >= pad_samples else list(self.audio_buffer)
+            self.speech_buffer = pad_data + list(chunk)
+            
+            if self.recognizer:
+                self.recognizer.Reset()
+        
+        elif is_speech_now and self.is_speech:
+            # 音声継続中
+            self.speech_buffer.extend(chunk)
+            self.silence_duration = 0
+            
+            audio_int16 = (np.array(chunk) * 32767).astype(np.int16)
+            audio_bytes = audio_int16.tobytes()
+            
+            if self.recognizer.AcceptWaveform(audio_bytes):
+                result = json.loads(self.recognizer.Result())
+                text = result.get('text', '').strip()
+                
+                if text:
+                    answer = detect_answer_keyword(text)
+                    if answer is not None:
+                        self.is_speech = False
+                        self.speech_buffer = []
+                        
+                        return {
+                            'type': 'speech_result',
+                            'text': text,
+                            'answer': answer,
+                            'is_final': True
+                        }
+            else:
+                partial_result = json.loads(self.recognizer.PartialResult())
+                partial_text = partial_result.get('partial', '').strip()
+                
+                if partial_text:
+                    answer = detect_answer_keyword(partial_text)
+                    if answer is not None:
+                        self.is_speech = False
+                        self.speech_buffer = []
+                        
+                        final_result = json.loads(self.recognizer.FinalResult())
+                        
+                        return {
+                            'type': 'speech_result',
+                            'text': partial_text,
+                            'answer': answer,
+                            'is_final': True
+                        }
+            
+            duration = len(self.speech_buffer) / SAMPLE_RATE
+            if duration > self.max_speech_duration:
+                return self._finalize_recognition()
+        
+        elif not is_speech_now and self.is_speech:
+            # 無音検出
+            self.speech_buffer.extend(chunk)
+            self.silence_duration += len(chunk) / SAMPLE_RATE
+            
+            if self.silence_duration > 0.3:
+                duration = len(self.speech_buffer) / SAMPLE_RATE
+                
+                if duration >= self.min_speech_duration:
+                    return self._finalize_recognition()
+                else:
+                    self.is_speech = False
+                    self.speech_buffer = []
+        
+        return None
+    
+    def _finalize_recognition(self) -> Optional[dict]:
+        """認識確定"""
+        if not self.speech_buffer or self.recognizer is None:
+            self.is_speech = False
+            self.speech_buffer = []
+            return None
+        
+        try:
+            result = json.loads(self.recognizer.FinalResult())
+            text = result.get('text', '').strip()
+            
+            if text:
+                answer = detect_answer_keyword(text)
+                
+                self.is_speech = False
+                self.speech_buffer = []
+                
+                return {
+                    'type': 'speech_result',
+                    'text': text,
+                    'answer': answer,
+                    'is_final': True
+                }
+        
+        except Exception as e:
+            print(f"❌ 認識エラー: {e}")
+        
+        self.is_speech = False
+        self.speech_buffer = []
+        return None
