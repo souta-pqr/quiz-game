@@ -92,15 +92,20 @@ def cleanup_motor():
 
 
 async def broadcast_message(message: dict):
-    """全クライアントにメッセージ送信"""
+    """全クライアントにメッセージ送信（スレッドセーフ）"""
+    # イテレーション中のセット変更を避けるため、コピーを作成
+    connections_snapshot = list(active_connections.copy())
     disconnected = set()
-    for connection in active_connections:
+    
+    for connection in connections_snapshot:
         try:
             await connection.send_json(message)
         except Exception as e:
             disconnected.add(connection)
     
-    active_connections.difference_update(disconnected)
+    # 切断された接続を削除
+    if disconnected:
+        active_connections.difference_update(disconnected)
 
 
 @app.get("/")
@@ -148,45 +153,61 @@ async def resume_motor():
     """モーター再開API（解説終了後に呼ばれる）"""
     global motor_state
     
-    with motor_state_lock:
-        if motor_state["is_stopped_for_answer"]:
-            # モーター処理中を通知
-            await broadcast_message({
-                "type": "motor_processing",
-                "message": "次の回答者を選んでいます...",
-                "status": "started"
-            })
-            await asyncio.sleep(0.5)
-            
-            # 交互ランダム回転で回答者を再選択
-            if motor_controller and motor_controller.is_initialized:
-                motor_controller.perform_random_rotation_for_reselection()
-            
-            # 待機（同じ人の再検出を避ける）
-            await asyncio.sleep(3.0)
-            
-            # 回答待ち状態を解除
-            motor_state["is_stopped_for_answer"] = False
-            motor_state["snapshot_image"] = None
-            motor_state["detection_timestamp"] = None
-            
-            # 処理完了を通知
-            await broadcast_message({
-                "type": "motor_processing",
-                "message": "処理完了",
-                "status": "completed"
-            })
-            await asyncio.sleep(0.5)
-            
-            # 通常の回転を再開
-            if not motor_controller.is_running and motor_controller.is_initialized:
-                motor_controller.get_next_rotation_direction()
-                motor_controller.start_slow_rotation()
-                motor_state["is_running"] = True
-            
-            return {"status": "resumed", "message": "回答者再選択完了"}
-        else:
-            return {"status": "not_stopped", "message": "回答待ち状態ではありません"}
+    try:
+        with motor_state_lock:
+            if motor_state["is_stopped_for_answer"]:
+                # モーター処理中を通知
+                try:
+                    await broadcast_message({
+                        "type": "motor_processing",
+                        "message": "次の回答者を選んでいます...",
+                        "status": "started"
+                    })
+                except Exception as e:
+                    print(f"ブロードキャストエラー（開始）: {e}")
+                
+                await asyncio.sleep(0.5)
+                
+                # 交互ランダム回転で回答者を再選択
+                if motor_controller and motor_controller.is_initialized:
+                    try:
+                        motor_controller.perform_random_rotation_for_reselection()
+                    except Exception as e:
+                        print(f"モーター回転エラー: {e}")
+                
+                # 待機（同じ人の再検出を避ける）
+                await asyncio.sleep(3.0)
+                
+                # 回答待ち状態を解除
+                motor_state["is_stopped_for_answer"] = False
+                motor_state["snapshot_image"] = None
+                motor_state["detection_timestamp"] = None
+                
+                # 処理完了を通知
+                try:
+                    await broadcast_message({
+                        "type": "motor_processing",
+                        "message": "処理完了",
+                        "status": "completed"
+                    })
+                except Exception as e:
+                    print(f"ブロードキャストエラー（完了）: {e}")
+                
+                await asyncio.sleep(0.5)
+                
+                # 通常の回転を再開
+                if not motor_controller.is_running and motor_controller.is_initialized:
+                    motor_controller.get_next_rotation_direction()
+                    motor_controller.start_slow_rotation()
+                    motor_state["is_running"] = True
+                
+                return {"status": "resumed", "message": "回答者再選択完了"}
+            else:
+                return {"status": "not_stopped", "message": "回答待ち状態ではありません"}
+    
+    except Exception as e:
+        print(f"モーター再開エラー: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.websocket("/ws/detection")
@@ -209,21 +230,33 @@ async def websocket_detection(websocket: WebSocket):
     
     try:
         while True:
-            data = await websocket.receive()
-            
-            if "text" in data:
-                message = json.loads(data["text"])
-                if message.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
+            try:
+                data = await websocket.receive()
+                
+                if "text" in data:
+                    message = json.loads(data["text"])
+                    if message.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                # 切断関連のエラーは正常終了として扱う
+                if "disconnect" in str(e).lower() or "Cannot call" in str(e):
+                    break
+                print(f"物体検出メッセージ処理エラー: {e}")
+                break
     
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
+        pass
+    except Exception as e:
+        if "disconnect" not in str(e).lower():
+            print(f"物体検出WebSocketエラー: {e}")
+    finally:
+        # 確実に接続を削除
+        active_connections.discard(websocket)
         
         if len(active_connections) == 0:
             set_detection_running(False)
-    except Exception as e:
-        print(f"物体検出WebSocketエラー: {e}")
-        active_connections.discard(websocket)
 
 
 @app.websocket("/ws/speech")
@@ -267,17 +300,22 @@ async def websocket_speech(websocket: WebSocket):
                 elif "type" in message and message["type"] == "websocket.disconnect":
                     break
             
+            except WebSocketDisconnect:
+                break
             except Exception as e:
-                if "disconnect" in str(e).lower():
+                # 切断関連のエラーは正常終了として扱う
+                if "disconnect" in str(e).lower() or "Cannot call" in str(e):
                     break
-                else:
-                    break
+                # その他のエラーも終了
+                break
     
     except WebSocketDisconnect:
         pass
     except Exception as e:
+        # エラーは静かに処理
         pass
     finally:
+        # 確実にバッファを削除
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]
 
