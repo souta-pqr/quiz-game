@@ -274,15 +274,41 @@ async def websocket_detection(websocket: WebSocket):
 @app.websocket("/ws/speech")
 async def websocket_speech(websocket: WebSocket):
     """音声認識WebSocketエンドポイント"""
+    print("\n" + "="*60)
+    print("🔌 音声認識WebSocket接続受信")
+    print("="*60)
+    
     await websocket.accept()
     connection_id = str(id(websocket))
+    
+    print(f"✅ WebSocket接続確立 - ID: {connection_id}")
     
     # モジュールのグローバル変数を直接参照
     print(f"📊 vosk_model: {voice_recognition.vosk_model is not None}")
     print(f"📊 vad_model: {voice_recognition.vad_model is not None}")
     
+    if voice_recognition.vosk_model is None:
+        print("❌ Voskモデルが初期化されていません")
+    else:
+        print("✅ Voskモデル利用可能")
+    
+    if voice_recognition.vad_model is None:
+        print("❌ VADモデルが初期化されていません")
+    else:
+        print("✅ VADモデル利用可能")
+    
+    print("="*60)
+    print("🎯 FastKeywordSpotter初期化")
+    print(f"接続ID: {connection_id}")
+    print("="*60)
+    
     spotter = voice_recognition.FastKeywordSpotter(connection_id)
     audio_buffers[connection_id] = spotter
+    
+    print("✅ FastKeywordSpotter作成完了")
+    print("="*60 + "\n")
+    
+    audio_chunk_count = 0
     
     try:
         while True:
@@ -299,6 +325,13 @@ async def websocket_speech(websocket: WebSocket):
                 
                 elif "bytes" in message:
                     audio_bytes = message["bytes"]
+                    audio_chunk_count += 1
+                    
+                    # 最初のチャンクと10個ごとにログ
+                    if audio_chunk_count == 1:
+                        print(f"🎵 最初の音声チャンク受信: {len(audio_bytes)} bytes")
+                    elif audio_chunk_count % 10 == 0:
+                        print(f"🎵 音声チャンク: {audio_chunk_count}個目")
                     
                     # モジュールのグローバル変数を直接チェック
                     if voice_recognition.vosk_model is not None and voice_recognition.vad_model is not None:
@@ -309,10 +342,18 @@ async def websocket_speech(websocket: WebSocket):
                             result = spotter.process_audio_chunk(audio_float)
                             
                             if result:
+                                print(f"🎯 認識結果送信: {result}")
                                 await websocket.send_json(result)
                         
                         except Exception as e:
                             print(f"❌ 音声処理エラー: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        if audio_chunk_count == 1:
+                            print(f"⚠️ モデル未初期化のため音声処理スキップ")
+                            print(f"   vosk_model: {voice_recognition.vosk_model is not None}")
+                            print(f"   vad_model: {voice_recognition.vad_model is not None}")
                 
                 elif "type" in message and message["type"] == "websocket.disconnect":
                     break
@@ -336,3 +377,4 @@ async def websocket_speech(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
