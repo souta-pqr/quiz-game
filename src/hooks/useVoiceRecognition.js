@@ -102,6 +102,10 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
             onAnswer(data.answer);
             setRecognizedText('');
           }
+        } else if (data.type === 'speech_status') {
+          // 音声認識ステータスの更新
+          console.log('音声認識ステータス:', data.status, data.message);
+          setDebugInfo(data.message || data.status);
         } else if (data.type === 'speech_error') {
           console.error('音声認識エラー:', data.error);
           setDebugInfo(`エラー: ${data.error}`);

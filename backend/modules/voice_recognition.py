@@ -160,6 +160,10 @@ class FastKeywordSpotter:
         """音声チャンク処理"""
         # グローバル変数を直接チェック
         if vad_model is None or self.recognizer is None:
+            if vad_model is None:
+                print(f"⚠️ VADモデルが未初期化（接続ID: {self.connection_id}）")
+            if self.recognizer is None:
+                print(f"⚠️ Voskレコグナイザーが未初期化（接続ID: {self.connection_id}）")
             return None
         
         self.audio_buffer.extend(audio_data)
@@ -189,12 +193,14 @@ class FastKeywordSpotter:
             # グローバル変数を直接使用
             speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         except Exception as e:
+            print(f"❌ VAD処理エラー: {e}")
             return None
         
         is_speech_now = speech_prob > self.vad_threshold
         
         if is_speech_now and not self.is_speech:
             # 音声開始
+            print(f"🎤 音声検出開始 (確率: {speech_prob:.3f}, 閾値: {self.vad_threshold})")
             self.is_speech = True
             self.silence_duration = 0
             
@@ -204,6 +210,13 @@ class FastKeywordSpotter:
             
             if self.recognizer:
                 self.recognizer.Reset()
+            
+            # 音声検出開始をクライアントに通知
+            return {
+                'type': 'speech_status',
+                'status': 'speech_started',
+                'message': '音声を検出しました'
+            }
         
         elif is_speech_now and self.is_speech:
             # 音声継続中
@@ -217,8 +230,11 @@ class FastKeywordSpotter:
                 result = json.loads(self.recognizer.Result())
                 text = result.get('text', '').strip()
                 
+                print(f"🗣️ Vosk認識結果（確定）: '{text}'")
+                
                 if text:
                     answer = detect_answer_keyword(text)
+                    print(f"🎯 キーワード判定: テキスト='{text}', 回答={answer}")
                     if answer is not None:
                         self.is_speech = False
                         self.speech_buffer = []
@@ -234,8 +250,10 @@ class FastKeywordSpotter:
                 partial_text = partial_result.get('partial', '').strip()
                 
                 if partial_text:
+                    print(f"🗣️ Vosk認識結果（部分）: '{partial_text}'")
                     answer = detect_answer_keyword(partial_text)
                     if answer is not None:
+                        print(f"🎯 キーワード判定（部分）: テキスト='{partial_text}', 回答={answer}")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -260,9 +278,12 @@ class FastKeywordSpotter:
             if self.silence_duration > 0.3:
                 duration = len(self.speech_buffer) / SAMPLE_RATE
                 
+                print(f"🔇 音声終了検出 (無音時間: {self.silence_duration:.2f}s, 音声長: {duration:.2f}s)")
+                
                 if duration >= self.min_speech_duration:
                     return self._finalize_recognition()
                 else:
+                    print(f"⚠️ 音声が短すぎるためスキップ (最小: {self.min_speech_duration}s)")
                     self.is_speech = False
                     self.speech_buffer = []
         
@@ -276,11 +297,15 @@ class FastKeywordSpotter:
             return None
         
         try:
+            print(f"🎤 音声認識確定処理開始 (バッファサイズ: {len(self.speech_buffer)} サンプル)")
             result = json.loads(self.recognizer.FinalResult())
             text = result.get('text', '').strip()
             
+            print(f"🗣️ Vosk最終認識結果: '{text}'")
+            
             if text:
                 answer = detect_answer_keyword(text)
+                print(f"🎯 キーワード判定（最終）: テキスト='{text}', 回答={answer}")
                 
                 self.is_speech = False
                 self.speech_buffer = []
@@ -291,9 +316,13 @@ class FastKeywordSpotter:
                     'answer': answer,
                     'is_final': True
                 }
+            else:
+                print(f"⚠️ 認識結果が空文字列")
         
         except Exception as e:
             print(f"❌ 認識エラー: {e}")
+            import traceback
+            traceback.print_exc()
         
         self.is_speech = False
         self.speech_buffer = []

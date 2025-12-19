@@ -287,13 +287,22 @@ async def websocket_speech(websocket: WebSocket):
     print(f"📊 vosk_model: {voice_recognition.vosk_model is not None}")
     print(f"📊 vad_model: {voice_recognition.vad_model is not None}")
     
+    # モデルが初期化されていない場合はエラーメッセージをクライアントに送信
     if voice_recognition.vosk_model is None:
         print("❌ Voskモデルが初期化されていません")
+        await websocket.send_json({
+            "type": "speech_error",
+            "error": "Voskモデルが初期化されていません。サーバーログを確認してください。"
+        })
     else:
         print("✅ Voskモデル利用可能")
     
     if voice_recognition.vad_model is None:
         print("❌ VADモデルが初期化されていません")
+        await websocket.send_json({
+            "type": "speech_error",
+            "error": "VADモデルが初期化されていません。サーバーログを確認してください。"
+        })
     else:
         print("✅ VADモデル利用可能")
     
@@ -307,6 +316,20 @@ async def websocket_speech(websocket: WebSocket):
     
     print("✅ FastKeywordSpotter作成完了")
     print("="*60 + "\n")
+    
+    # 初期化状態をクライアントに通知
+    if voice_recognition.vosk_model is not None and voice_recognition.vad_model is not None:
+        await websocket.send_json({
+            "type": "speech_status",
+            "status": "ready",
+            "message": "音声認識の準備が完了しました"
+        })
+    else:
+        await websocket.send_json({
+            "type": "speech_status",
+            "status": "error",
+            "message": "音声認識モデルの初期化に失敗しました"
+        })
     
     audio_chunk_count = 0
     
