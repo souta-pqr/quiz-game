@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Vosk + Silero VADによる高速キーワードスポッティング
+Vosk + Silero VADによるキーワードスポッティング
 """
 
 import os
@@ -19,14 +19,29 @@ vad_model = None
 SAMPLE_RATE = 16000
 
 
+def get_vosk_model():
+    """Voskモデルを取得（グローバル変数アクセス用）"""
+    return vosk_model
+
+
+def get_vad_model():
+    """VADモデルを取得（グローバル変数アクセス用）"""
+    return vad_model
+
+
+def is_models_ready():
+    """モデルが初期化されているか確認"""
+    return vosk_model is not None and vad_model is not None
+
+
 def initialize_vosk():
     """Vosk初期化"""
     global vosk_model
     
     try:
-        print("\n" + "=" * 60)
-        print("🎤 Vosk音声認識モデル初期化開始")
-        print("=" * 60)
+        print("="*60)
+        print("Vosk音声認識モデル初期化開始")
+        print("="*60)
         
         # modules/ディレクトリの親ディレクトリ（backend/）を基準にする
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,24 +52,23 @@ def initialize_vosk():
         print(f"📂 モデル存在確認: {os.path.exists(model_path)}")
         
         if not os.path.exists(model_path):
-            print(f"\n❌ Voskモデルが見つかりません: {model_path}")
+            print(f"❌ Voskモデルが見つかりません: {model_path}")
             print("\n以下のコマンドでモデルをダウンロードしてください:")
             print("  cd backend")
             print("  wget https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip")
             print("  unzip vosk-model-small-ja-0.22.zip")
-            print("=" * 60 + "\n")
             return
         
         print(f"⏳ Voskモデル読み込み中...")
         vosk_model = Model(model_path)
         print(f"✅ Vosk小モデルを初期化しました")
-        print("=" * 60 + "\n")
+        print(f"✅ グローバル変数 vosk_model を設定: {vosk_model is not None}")
+        print("="*60)
         
     except Exception as e:
-        print(f"\n❌ Voskモデルの初期化に失敗: {e}")
+        print(f"❌ Voskモデルの初期化に失敗: {e}")
         import traceback
         traceback.print_exc()
-        print("=" * 60 + "\n")
 
 
 def initialize_vad():
@@ -62,9 +76,9 @@ def initialize_vad():
     global vad_model
     
     try:
-        print("\n" + "=" * 60)
-        print("🔊 Silero VADモデル初期化開始")
-        print("=" * 60)
+        print("="*60)
+        print("Silero VADモデル初期化開始")
+        print("="*60)
         
         print("⏳ Silero VADモデルをダウンロード中...")
         vad_model, utils = torch.hub.load(
@@ -74,13 +88,13 @@ def initialize_vad():
             onnx=False
         )
         print("✅ Silero VADモデルを初期化しました")
-        print("=" * 60 + "\n")
+        print(f"✅ グローバル変数 vad_model を設定: {vad_model is not None}")
+        print("="*60)
         
     except Exception as e:
-        print(f"\n❌ Silero VADの初期化に失敗: {e}")
+        print(f"❌ Silero VADの初期化に失敗: {e}")
         import traceback
         traceback.print_exc()
-        print("=" * 60 + "\n")
 
 
 def detect_answer_keyword(text: str) -> Optional[bool]:
@@ -117,14 +131,9 @@ def detect_answer_keyword(text: str) -> Optional[bool]:
 
 
 class FastKeywordSpotter:
-    """高速キーワードスポッティング（デバッグ強化版）"""
+    """高速キーワードスポッティング"""
     
     def __init__(self, connection_id: str):
-        print(f"\n{'='*60}")
-        print(f"🎯 FastKeywordSpotter初期化")
-        print(f"接続ID: {connection_id}")
-        print(f"{'='*60}")
-        
         self.connection_id = connection_id
         self.sample_rate = SAMPLE_RATE
         self.audio_buffer = deque(maxlen=int(SAMPLE_RATE * 10))
@@ -139,47 +148,18 @@ class FastKeywordSpotter:
         self.vad_chunk_size = 512
         self.pending_samples = np.array([], dtype=np.float32)
         
-        # チャンクカウンター
-        self.chunk_count = 0
-        self.speech_count = 0
-        self.recognition_count = 0
-        
-        print(f"📊 設定:")
-        print(f"  サンプルレート: {SAMPLE_RATE}Hz")
-        print(f"  VAD閾値: {self.vad_threshold}")
-        print(f"  VADチャンクサイズ: {self.vad_chunk_size}")
-        print(f"  最小音声時間: {self.min_speech_duration}秒")
-        print(f"  最大音声時間: {self.max_speech_duration}秒")
-        
+        # グローバル変数を直接参照
         if vosk_model is not None:
             self.recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
             self.recognizer.SetWords(True)
             self.recognizer.SetPartialWords(True)
-            print(f"✅ Vosk Recognizer初期化完了")
         else:
             self.recognizer = None
-            print(f"❌ Vosk Recognizer初期化失敗: vosk_modelがNone")
-        
-        if vad_model is not None:
-            print(f"✅ VADモデル利用可能")
-        else:
-            print(f"❌ VADモデル利用不可: vad_modelがNone")
-        
-        print(f"{'='*60}\n")
     
     def process_audio_chunk(self, audio_data: np.ndarray) -> Optional[dict]:
         """音声チャンク処理"""
-        self.chunk_count += 1
-        
-        # 10チャンクごとにログ出力
-        if self.chunk_count % 10 == 0:
-            print(f"🎵 音声チャンク受信: {self.chunk_count}個目 (サイズ: {len(audio_data)})")
-        
+        # グローバル変数を直接チェック
         if vad_model is None or self.recognizer is None:
-            if self.chunk_count == 1:
-                print(f"❌ VADまたはRecognizerが初期化されていません")
-                print(f"   vad_model: {vad_model is not None}")
-                print(f"   recognizer: {self.recognizer is not None}")
             return None
         
         self.audio_buffer.extend(audio_data)
@@ -206,10 +186,9 @@ class FastKeywordSpotter:
         audio_tensor = torch.from_numpy(chunk).float()
         
         try:
+            # グローバル変数を直接使用
             speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         except Exception as e:
-            if self.chunk_count % 50 == 0:
-                print(f"❌ VAD処理エラー: {e}")
             return None
         
         is_speech_now = speech_prob > self.vad_threshold
@@ -218,9 +197,6 @@ class FastKeywordSpotter:
             # 音声開始
             self.is_speech = True
             self.silence_duration = 0
-            self.speech_count += 1
-            
-            print(f"\n🎤 音声開始検出 (#{self.speech_count}) - 確率: {speech_prob:.3f}")
             
             pad_samples = int(SAMPLE_RATE * self.speech_pad_ms / 1000)
             pad_data = list(self.audio_buffer)[-pad_samples:] if len(self.audio_buffer) >= pad_samples else list(self.audio_buffer)
@@ -242,12 +218,8 @@ class FastKeywordSpotter:
                 text = result.get('text', '').strip()
                 
                 if text:
-                    self.recognition_count += 1
-                    print(f"✅ 完全認識 (#{self.recognition_count}): '{text}'")
-                    
                     answer = detect_answer_keyword(text)
                     if answer is not None:
-                        print(f"🎯 キーワード検出: {'まる' if answer else 'ばつ'}")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -261,13 +233,9 @@ class FastKeywordSpotter:
                 partial_result = json.loads(self.recognizer.PartialResult())
                 partial_text = partial_result.get('partial', '').strip()
                 
-                if partial_text and len(partial_text) > 0:
-                    if self.chunk_count % 5 == 0:
-                        print(f"⏳ 部分認識: '{partial_text}'")
-                    
+                if partial_text:
                     answer = detect_answer_keyword(partial_text)
                     if answer is not None:
-                        print(f"🎯 部分キーワード検出: {'まる' if answer else 'ばつ'}")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -282,7 +250,6 @@ class FastKeywordSpotter:
             
             duration = len(self.speech_buffer) / SAMPLE_RATE
             if duration > self.max_speech_duration:
-                print(f"⚠️ 最大音声時間超過: {duration:.2f}秒")
                 return self._finalize_recognition()
         
         elif not is_speech_now and self.is_speech:
@@ -293,12 +260,9 @@ class FastKeywordSpotter:
             if self.silence_duration > 0.3:
                 duration = len(self.speech_buffer) / SAMPLE_RATE
                 
-                print(f"🔇 無音検出 - 音声時間: {duration:.2f}秒")
-                
                 if duration >= self.min_speech_duration:
                     return self._finalize_recognition()
                 else:
-                    print(f"⚠️ 音声時間が短すぎます: {duration:.2f}秒 < {self.min_speech_duration}秒")
                     self.is_speech = False
                     self.speech_buffer = []
         
@@ -312,12 +276,10 @@ class FastKeywordSpotter:
             return None
         
         try:
-            print(f"🏁 認識確定処理開始")
             result = json.loads(self.recognizer.FinalResult())
             text = result.get('text', '').strip()
             
             if text:
-                print(f"📝 最終認識結果: '{text}'")
                 answer = detect_answer_keyword(text)
                 
                 self.is_speech = False
@@ -329,13 +291,9 @@ class FastKeywordSpotter:
                     'answer': answer,
                     'is_final': True
                 }
-            else:
-                print(f"⚠️ 認識結果が空です")
         
         except Exception as e:
-            print(f"❌ 認識確定エラー: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ 認識エラー: {e}")
         
         self.is_speech = False
         self.speech_buffer = []
