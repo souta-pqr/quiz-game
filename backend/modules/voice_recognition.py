@@ -198,6 +198,7 @@ class FastKeywordSpotter:
                 if text:
                     answer = detect_answer_keyword(text)
                     if answer is not None:
+                        # 丸・バツを検出
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -207,6 +208,11 @@ class FastKeywordSpotter:
                             'answer': answer,
                             'is_final': True
                         }
+                    else:
+                        # 丸・バツ以外の音声は即座に破棄（軽量化）
+                        self.is_speech = False
+                        self.speech_buffer = []
+                        self.recognizer.Reset()
             else:
                 partial_result = json.loads(self.recognizer.PartialResult())
                 partial_text = partial_result.get('partial', '').strip()
@@ -214,6 +220,7 @@ class FastKeywordSpotter:
                 if partial_text:
                     answer = detect_answer_keyword(partial_text)
                     if answer is not None:
+                        # 丸・バツを検出
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -260,19 +267,22 @@ class FastKeywordSpotter:
             if text:
                 answer = detect_answer_keyword(text)
                 
-                self.is_speech = False
-                self.speech_buffer = []
-                
-                return {
-                    'type': 'speech_result',
-                    'text': text,
-                    'answer': answer,
-                    'is_final': True
-                }
+                # 丸・バツのみ返す、それ以外は破棄
+                if answer is not None:
+                    self.is_speech = False
+                    self.speech_buffer = []
+                    
+                    return {
+                        'type': 'speech_result',
+                        'text': text,
+                        'answer': answer,
+                        'is_final': True
+                    }
         
         except Exception as e:
             pass
         
+        # 丸・バツ以外は破棄
         self.is_speech = False
         self.speech_buffer = []
         return None

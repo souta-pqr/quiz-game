@@ -155,56 +155,6 @@ const VoiceRecognition = ({
         </div>
       )}
       
-      {/* デバッグ情報 */}
-      {debugInfo && (
-        <div className="mb-3 p-2 bg-blue-50 rounded text-xs font-mono text-blue-800 border border-blue-300">
-          🔍 Debug: {debugInfo}
-        </div>
-      )}
-      
-      {/* 認識履歴 */}
-      {recognitionHistory.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-600">📝 認識履歴（最新{recognitionHistory.length}件）</span>
-            <button
-              onClick={() => {
-                console.log('🗑️ 履歴クリアボタンクリック');
-                onClearHistory();
-              }}
-              className="text-xs text-gray-500 hover:text-red-600 transition flex items-center gap-1"
-            >
-              <Trash2 className="w-3 h-3" />
-              クリア
-            </button>
-          </div>
-          <div className="space-y-1 max-h-32 overflow-y-auto bg-white p-2 rounded border border-gray-200">
-            {recognitionHistory.slice().reverse().map((item, index) => (
-              <div 
-                key={index} 
-                className={`text-xs p-2 rounded ${
-                  item.isFinal 
-                    ? item.answer !== null 
-                      ? 'bg-purple-50 border border-purple-300'
-                      : 'bg-blue-50 border border-blue-200'
-                    : 'bg-gray-50 border border-gray-200'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-gray-800">{item.text}</span>
-                  <span className="text-gray-500 text-xs ml-2">{item.timestamp}</span>
-                </div>
-                {item.answer !== null && (
-                  <span className="text-xs font-semibold text-purple-700 mt-1 block">
-                    → {item.answer ? '○ まる' : '× ばつ'}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      
       {disabled && (
         <div className="mt-3 text-xs text-gray-600 bg-yellow-50 p-2 rounded border border-yellow-300">
           ⏸️ 回答処理中のため音声認識を一時停止しています

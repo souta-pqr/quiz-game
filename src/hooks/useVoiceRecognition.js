@@ -74,20 +74,7 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
         const data = JSON.parse(event.data);
         
         if (data.type === 'speech_result') {
-          const timestamp = new Date().toLocaleTimeString();
-          
-          // 認識結果を履歴に追加
-          setRecognitionHistory(prev => [
-            ...prev,
-            {
-              text: data.text,
-              isFinal: data.is_final,
-              answer: data.answer,
-              timestamp
-            }
-          ].slice(-10)); // 最新10件のみ保持
-          
-          // 現在の認識テキストを更新
+          // 現在の認識テキストを更新（履歴には保存しない）
           setRecognizedText(data.text);
           
           if (data.is_final) {
@@ -247,11 +234,11 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
     setDebugInfo('停止');
   }, []);
 
-  // 履歴をクリア
+  // クールダウンをリセット
   const clearHistory = useCallback(() => {
-    setRecognitionHistory([]);
-    lastAnswerTimeRef.current = 0; // クールダウンもリセット
-    setDebugInfo('履歴クリア');
+    lastAnswerTimeRef.current = 0; // クールダウンをリセット
+    setRecognizedText('');
+    setDebugInfo('リセット');
   }, []);
 
   // 初期化と自動起動
