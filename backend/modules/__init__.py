@@ -1,10 +1,10 @@
 """
-クイズゲーム用モジュールパッケージ（デバッグ版）
+クイズゲーム用モジュールパッケージ
 """
 
 from .gpio_controller import GPIOWrapper, GPIO_AVAILABLE, GPIO_LIBRARY
 from .motor_controller import MotorController
-from .object_detector_cascade import (
+from .object_detector import (
     initialize_detector, 
     run_detection, 
     motor_state, 
@@ -14,24 +14,16 @@ from .object_detector_cascade import (
     get_detector,
     is_detector_ready
 )
-
-# デバッグ版voice_recognitionをインポート
-# 実際のファイル名に応じて調整してください
-try:
-    from .voice_recognition import initialize_vosk, initialize_vad, FastKeywordSpotter, vosk_model, vad_model
-    print("✅ voice_recognitionモジュール読み込み成功")
-except ImportError as e:
-    print(f"❌ voice_recognitionモジュール読み込み失敗: {e}")
-    # ダミーの関数を定義
-    def initialize_vosk():
-        print("⚠️ initialize_vosk ダミー実装")
-    def initialize_vad():
-        print("⚠️ initialize_vad ダミー実装")
-    class FastKeywordSpotter:
-        def __init__(self, connection_id):
-            print("⚠️ FastKeywordSpotter ダミー実装")
-    vosk_model = None
-    vad_model = None
+from .voice_recognition import (
+    initialize_vosk, 
+    initialize_vad, 
+    FastKeywordSpotter, 
+    vosk_model, 
+    vad_model,
+    get_vosk_model,
+    get_vad_model,
+    is_models_ready
+)
 
 __all__ = [
     'GPIOWrapper',
@@ -51,4 +43,7 @@ __all__ = [
     'FastKeywordSpotter',
     'vosk_model',
     'vad_model',
+    'get_vosk_model',
+    'get_vad_model',
+    'is_models_ready',
 ]
