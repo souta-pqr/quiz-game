@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-物体検出モジュール（OpenCV Cascade版）
+物体検出モジュール（OpenCV Cascade版・デバッグ強化）
 カスケード分類器による顔検出
 """
 
@@ -26,8 +26,8 @@ motor_state = {
 }
 motor_state_lock = threading.RLock()
 
-# 検出設定
-STABLE_DETECTION_COUNT = 3
+# 検出設定（緩和）
+STABLE_DETECTION_COUNT = 2  # 3→2に変更（より早く検出）
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 
@@ -71,7 +71,9 @@ class CascadePersonDetector:
         
         self.stable_count = 0
         self.detection_count = 0
+        self.last_log_time = 0
         print("✓ カスケード分類器読み込み完了")
+        print(f"  検出パラメータ: minNeighbors=2, minSize=(60,60)")
     
     def detect_person(self, frame):
         """顔検出
@@ -89,12 +91,12 @@ class CascadePersonDetector:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             gray = cv2.equalizeHist(gray)
             
-            # 顔検出
+            # 顔検出（パラメータを緩和）
             detections = self.cascade.detectMultiScale(
                 gray,
                 scaleFactor=1.1,
-                minNeighbors=3,
-                minSize=(90, 90),
+                minNeighbors=2,      # 3→2に変更（感度UP）
+                minSize=(60, 60),    # 90→60に変更（小さい顔も検出）
                 flags=cv2.CASCADE_SCALE_IMAGE
             )
             
@@ -108,6 +110,15 @@ class CascadePersonDetector:
             # 安定検出の判定
             stable_detection = self.stable_count >= STABLE_DETECTION_COUNT
             person_detected = person_count > 0
+            
+            # 100フレームごとまたは検出時にログ出力
+            current_time = time.time()
+            if self.detection_count % 100 == 0 or person_detected:
+                if current_time - self.last_log_time > 2.0:  # 2秒に1回
+                    print(f"🔍 検出状況 (フレーム{self.detection_count}): "
+                          f"検出={person_count}人, 連続={self.stable_count}, "
+                          f"安定={stable_detection}")
+                    self.last_log_time = current_time
             
             return person_detected, person_count, stable_detection, detections
             
@@ -157,6 +168,11 @@ async def run_detection(motor_controller_instance, broadcast_callback):
         return
     
     print("✓ 物体検出を開始しました")
+    print(f"  安定検出閾値: {STABLE_DETECTION_COUNT}フレーム連続")
+    print(f"  フレームサイズ: {FRAME_WIDTH}x{FRAME_HEIGHT}")
+    
+    frame_count = 0
+    last_status_log = time.time()
     
     try:
         while detection_running:
@@ -164,6 +180,14 @@ async def run_detection(motor_controller_instance, broadcast_callback):
             if not ret:
                 await asyncio.sleep(0.1)
                 continue
+            
+            frame_count += 1
+            
+            # 10秒ごとに状態ログ
+            current_time = time.time()
+            if current_time - last_status_log > 10.0:
+                print(f"📹 カメラ動作中: {frame_count}フレーム処理済み")
+                last_status_log = current_time
             
             # 顔検出（Cascade版）
             person_detected, person_count, stable_detection, detections = detector.detect_person(frame)
@@ -177,7 +201,13 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                 elif stable_detection:
                     # 人を安定検出 → モーター停止
                     if motor_controller.is_running:
-                        print(f"\n👤 人検出確定! ({person_count}人) モーター停止 👤\n")
+                        print(f"\n{'='*60}")
+                        print(f"👤 人検出確定! ({person_count}人) モーター停止")
+                        print(f"   検出領域数: {len(detections)}")
+                        if len(detections) > 0:
+                            x, y, w, h = detections[0]
+                            print(f"   最大領域: x={x}, y={y}, w={w}, h={h}")
+                        print(f"{'='*60}\n")
                         motor_controller.request_emergency_stop()
                     
                     # スナップショット取得（最初の検出領域を使用）
@@ -199,6 +229,8 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                         
                         motor_state["snapshot_image"] = img_base64
                         motor_state["detection_timestamp"] = time.time()
+                        
+                        print(f"📷 スナップショット取得完了: {len(img_base64)}バイト")
                     
                     # クライアントに通知
                     await broadcast_callback({
@@ -207,6 +239,8 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                         "snapshot": motor_state["snapshot_image"],
                         "timestamp": time.time()
                     })
+                    
+                    print(f"📤 クライアントに通知送信完了")
                     
                     # 回答待ち状態に移行
                     motor_state["is_stopped_for_answer"] = True
@@ -237,5 +271,5 @@ async def run_detection(motor_controller_instance, broadcast_callback):
     
     finally:
         cap.release()
-        print("✓ 物体検出を停止しました")
-      
+        print(f"✓ 物体検出を停止しました (総フレーム数: {frame_count})")
+        
