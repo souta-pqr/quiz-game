@@ -54,7 +54,7 @@ const WhisperRecognition = ({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-red-700" />
-          <span className="font-bold text-red-800">🎤 Whisper音声認識（VAD統合）</span>
+          <span className="font-bold text-red-800">🎤 音声認識 </span>
           {isListening && !disabled && (
             <div className="flex items-center gap-1 ml-2">
               <Zap className="w-4 h-4 text-green-600 animate-pulse" />
@@ -110,7 +110,7 @@ const WhisperRecognition = ({
             <div className="w-1.5 h-4 bg-red-500 rounded animate-pulse" style={{animationDelay: '0.4s'}}></div>
           </div>
           <span className="text-base text-gray-800 font-bold">
-            �「まる」または「ばつ」と言ってください
+            「まる」か「ばつ」で回答してください
           </span>
         </div>
       )}
