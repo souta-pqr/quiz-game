@@ -16,7 +16,7 @@ const MotorProcessingOverlay = ({ isVisible }) => {
           モータ動作中
         </h2>
         <p className="text-gray-600">
-          次の回答者を選ぶための動作です...
+          次の回答者を選んでいます...
         </p>
       </div>
     </div>
