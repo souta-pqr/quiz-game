@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 クイズゲーム用モーター制御統合サーバー (Raspberry Pi 5対応版)
+回答者再選択機能追加: 回答終了後、モーターをランダムに動かして新しい回答者を選ぶ
 """
 
 import asyncio
@@ -12,6 +13,7 @@ import os
 import numpy as np
 import torch
 import base64
+import random
 from typing import Set, Optional, Dict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -164,7 +166,7 @@ class GPIOWrapper:
 # ===================================
 # モーター設定
 # ===================================
-HALF_ROTATION_TIME = 0.9
+HALF_ROTATION_TIME = 0.9  # 半回転（180°）にかかる時間
 STEP_DURATION = 0.15
 STEP_PAUSE = 0.75
 
@@ -189,7 +191,7 @@ motor_state_lock = threading.RLock()
 
 
 class MotorController:
-    """BLHモーター制御クラス (GPIO抽象化版)"""
+    """BLHモーター制御クラス (位置追跡・ランダム回転機能付き)"""
     
     def __init__(self, half_rotation_time=HALF_ROTATION_TIME):
         self.is_initialized = False
@@ -206,6 +208,15 @@ class MotorController:
         self.rotation_phase = "ccw_cycle"
         self.phase_count = 0
         self.total_rotations = 0
+        
+        # 🆕 位置追跡（角度: -90° 〜 +90°）
+        self.current_angle = 0.0      # 中央位置を0°とする
+        self.MIN_ANGLE = -90.0        # CCW最大位置
+        self.MAX_ANGLE = 90.0         # CW最大位置
+        self.degrees_per_second = 180.0 / half_rotation_time  # 約200°/秒
+        
+        print(f"✓ モーター制御初期化: 回転速度={self.degrees_per_second:.1f}°/秒")
+        print(f"  可動範囲: {self.MIN_ANGLE}° 〜 {self.MAX_ANGLE}°")
     
     @property
     def is_running(self):
@@ -239,11 +250,34 @@ class MotorController:
                 self.current_direction_cw = False
                 self.phase_count = 0
                 self.total_rotations = 0
+                self.current_angle = 0.0  # 中央位置でスタート
             
-            print("✓ モーター初期化完了")
+            print("✓ モーター初期化完了（位置: 0°）")
         except Exception as e:
             print(f"❌ モーター初期化エラー: {e}")
             raise
+    
+    def _update_angle(self, is_cw, duration):
+        """角度位置を更新
+        
+        Args:
+            is_cw: Trueなら時計回り（正の方向）
+            duration: 回転時間（秒）
+        """
+        with self.lock:
+            degrees_moved = self.degrees_per_second * duration
+            if is_cw:
+                self.current_angle += degrees_moved
+                # 範囲制限
+                if self.current_angle > self.MAX_ANGLE:
+                    self.current_angle = self.MAX_ANGLE
+            else:
+                self.current_angle -= degrees_moved
+                # 範囲制限
+                if self.current_angle < self.MIN_ANGLE:
+                    self.current_angle = self.MIN_ANGLE
+            
+            print(f"📍 現在位置: {self.current_angle:.1f}°")
     
     def _execute_step_with_check(self, is_cw):
         """ステップ実行（緊急停止チェック付き）"""
@@ -278,6 +312,9 @@ class MotorController:
                 time.sleep(0.01)
                 GPIOWrapper.output(START_STOP, OFF)
             
+            # 🆕 角度位置を更新
+            self._update_angle(is_cw, STEP_DURATION)
+            
             # 停止時間
             pause_steps = 10
             pause_interval = STEP_PAUSE / pause_steps
@@ -301,7 +338,7 @@ class MotorController:
                 return False
             
             direction_str = "CW" if self.current_direction_cw else "CCW"
-            print(f"▶ {direction_str}断続運転開始")
+            print(f"▶ {direction_str}断続運転開始（現在位置: {self.current_angle:.1f}°）")
             
             self._is_running = True
             self._emergency_stop_requested = False
@@ -352,7 +389,7 @@ class MotorController:
         with self.lock:
             if not self._is_running:
                 return
-            print(f"🚨 緊急停止リクエスト受信")
+            print(f"🚨 緊急停止リクエスト受信（現在位置: {self.current_angle:.1f}°）")
             self._emergency_stop_requested = True
     
     def _perform_emergency_stop(self):
@@ -369,7 +406,7 @@ class MotorController:
             self._emergency_stop_requested = False
             self._reset_state_after_stop()
             
-            print(f"✓ 緊急停止完了")
+            print(f"✓ 緊急停止完了（最終位置: {self.current_angle:.1f}°）")
         except Exception as e:
             print(f"❌ 緊急停止中エラー: {e}")
     
@@ -380,7 +417,7 @@ class MotorController:
                 return
             
             try:
-                print("⏹ 正常停止")
+                print(f"⏹ 正常停止（位置: {self.current_angle:.1f}°）")
                 if GPIO_AVAILABLE:
                     GPIOWrapper.output(RUN_BRAKE, OFF)
                     time.sleep(0.1)
@@ -421,6 +458,90 @@ class MotorController:
             
             self.elapsed_time = 0.0
             self.rotation_interrupted = False
+    
+    # 🆕 ランダム回転機能（回答者再選択用）
+    def perform_random_rotation_for_reselection(self):
+        """回答者再選択のためのランダム回転
+        
+        現在位置を考慮して、可動範囲内でランダムな方向・時間で回転する。
+        最大回転時間は0.5秒（約100°相当）。
+        """
+        with self.lock:
+            if not self.is_initialized:
+                print("⚠️ モーターが初期化されていません")
+                return False
+            
+            print(f"\n🎲 回答者再選択: ランダム回転開始")
+            print(f"   現在位置: {self.current_angle:.1f}°")
+            
+            # 現在位置から、各方向にどれだけ動けるかを計算
+            cw_available_degrees = self.MAX_ANGLE - self.current_angle  # 正方向の余地
+            ccw_available_degrees = self.current_angle - self.MIN_ANGLE  # 負方向の余地
+            
+            print(f"   CW可能: {cw_available_degrees:.1f}° / CCW可能: {ccw_available_degrees:.1f}°")
+            
+            # 回転可能な方向を決定
+            possible_directions = []
+            if cw_available_degrees > 10:  # 最低10°は動けること
+                possible_directions.append("CW")
+            if ccw_available_degrees > 10:
+                possible_directions.append("CCW")
+            
+            if not possible_directions:
+                print("⚠️ 回転可能な方向がありません（範囲端にいます）")
+                return False
+            
+            # ランダムに方向を選択
+            chosen_direction = random.choice(possible_directions)
+            is_cw = (chosen_direction == "CW")
+            
+            # 回転可能な最大角度を計算（最大0.5秒 = 約100°、ただし範囲内に制限）
+            max_rotation_time = 0.5  # 秒
+            max_rotation_degrees = self.degrees_per_second * max_rotation_time
+            
+            if is_cw:
+                max_degrees = min(max_rotation_degrees, cw_available_degrees - 5)  # 5°の余裕
+            else:
+                max_degrees = min(max_rotation_degrees, ccw_available_degrees - 5)
+            
+            # ランダムな回転角度を決定（10° 〜 max_degrees）
+            if max_degrees < 10:
+                rotation_degrees = max_degrees
+            else:
+                rotation_degrees = random.uniform(10, max_degrees)
+            
+            # 回転時間を計算
+            rotation_time = rotation_degrees / self.degrees_per_second
+            
+            print(f"   選択: {chosen_direction} {rotation_degrees:.1f}° （{rotation_time:.2f}秒）")
+            
+            # 実際に回転を実行
+            try:
+                if GPIO_AVAILABLE:
+                    GPIOWrapper.output(CW_CCW, ON if is_cw else OFF)
+                    time.sleep(0.01)
+                    GPIOWrapper.output(START_STOP, ON)
+                    time.sleep(0.01)
+                    GPIOWrapper.output(RUN_BRAKE, ON)
+                
+                # 回転時間だけ待機
+                time.sleep(rotation_time)
+                
+                if GPIO_AVAILABLE:
+                    GPIOWrapper.output(RUN_BRAKE, OFF)
+                    time.sleep(0.01)
+                    GPIOWrapper.output(START_STOP, OFF)
+                
+                # 角度位置を更新
+                self._update_angle(is_cw, rotation_time)
+                
+                print(f"✓ ランダム回転完了: 新位置 {self.current_angle:.1f}°")
+                print()
+                return True
+                
+            except Exception as e:
+                print(f"❌ ランダム回転中エラー: {e}")
+                return False
 
 
 def initialize_vosk():
@@ -464,83 +585,23 @@ def detect_answer_keyword(text: str) -> Optional[bool]:
     text_lower = text.lower().replace(' ', '')
     
     maru_keywords = [
-        # 基本形（ひらがな・カタカナ・漢字）
-        'まる', 'マル', '丸',
-        
-        # 長音・促音バリエーション
-        'まぁる', 'まーる', 'まっる', 'マァル', 'マール', 'マッル',
-        
-        # 語尾の音が付くパターン
-        'まるる', 'まるん', 'マルル', 'マルン',
-        'まるっ', 'まるい', 'マルッ', 'マルイ',
-        '丸い', '丸っこ', '丸み',
-        
-        # 短縮形
-        'まぁ', 'まー', 'マァ', 'マー',
-        
-        # 重複形
-        'まるまる', 'マルマル', '丸丸',
-        
-        # 類似発音の漢字（音読み・訓読み）
-        '円', 'まろ', 'まろう', 'マロ', 'マロウ',
-        '丸太', '丸子', 
-        
-        # 音声認識での誤認識パターン
-        'まある', 'マアル', 'まるー', 'マルー',
-        'まっ', 'マッ', 'まる～', 'マル～',
-        'まるお', 'マルオ', '麻呂', 'マロ',
-        
-        # その他の発音類似
-        'まるっと', 'マルット', 'まるっこ', 'マルッコ',
-        'まるご', 'マルゴ', 'まるさ', 'マルサ',
-        'まるち', 'マルチ', 'まろん', 'マロン',
-        
+        'まる', 'マル', '丸', 'まぁる', 'まーる', 'まっる', 'マァル', 'マール', 'マッル',
+        'まるる', 'まるん', 'マルル', 'マルン', 'まるっ', 'まるい', 'マルッ', 'マルイ',
+        '丸い', '丸っこ', '丸み', 'まぁ', 'まー', 'マァ', 'マー', 'まるまる', 'マルマル', 
+        '丸丸', '円', 'まろ', 'まろう', 'マロ', 'マロウ', '丸太', '丸子', 'まある', 'マアル',
     ]
     for keyword in maru_keywords:
         if keyword in text_lower or keyword in text:
             return True
     
-    # 「ばつ」系のキーワード（発音が似ているもの）
     batsu_keywords = [
-        # 基本形（ひらがな・カタカナ・漢字）
-        'ばつ', 'バツ', '罰',
-        
-        # 促音・長音バリエーション
-        'ばっ', 'ばー', 'バッ', 'バー',
-        'ばっつ', 'ばーつ', 'バッツ', 'バーツ',
-        'ばっちゅ', 'ばっちょ', 'バッチュ', 'バッチョ',
-        
-        # ペケ系（類似発音）
-        'ぺけ', 'ペケ', 'ぺっけ', 'ペッケ',
-        'ぺけぺけ', 'ペケペケ',
-        
-        # 重複形
-        'ばつばつ', 'バツバツ', '罰罰',
-        
-        # 語尾の音が付くパターン
-        'ばっつん', 'ばっちん', 'バッツン', 'バッチン',
-        'ばつん', 'ばっちゃ', 'バツン', 'バッチャ',
-        
-        # 類似発音の漢字
-        '発', '抜', '伐', '撥', '跋', '鉢',
-        '罰す', '罰則',
-        
-        # 音声認識での誤認識パターン（特に重要）
-        '月', 'つき', 'ツキ', 'げつ', 'ゲツ',
-        'はつ', 'ハツ', '初', '八',
-        'ぱつ', 'パツ', 'ぱっ', 'パッ',
-        'ばちゅ', 'ばちょ', 'バチュ', 'バチョ',
-        
-        # その他の発音類似
-        'ばつー', 'ばーつ', 'バツー', 'バーツ',
-        'ばつっ', 'ばっちゃん', 'バツッ', 'バッチャン',
-        'ばっちょん', 'バッチョン',
-        
-        # その他
-        'ばつご', 'ばつに', 'バツゴ', 'バツニ',
-        'ばっちゃ', 'ばっちゅん', 'バッチャ', 'バッチュン',
-
+        'ばつ', 'バツ', '罰', 'ばっ', 'ばー', 'バッ', 'バー', 'ばっつ', 'ばーつ', 'バッツ', 
+        'バーツ', 'ぺけ', 'ペケ', 'ぺっけ', 'ペッケ', 'ばつばつ', 'バツバツ', '月', 'つき', 
+        'ツキ', 'はつ', 'ハツ', '初', '八', 'ぱつ', 'パツ',
     ]
+    for keyword in batsu_keywords:
+        if keyword in text_lower or keyword in text:
+            return False
     
     return None
 
@@ -905,7 +966,7 @@ async def run_detection():
 @app.get("/")
 async def root():
     return {
-        "message": "クイズゲーム用モーター制御統合サーバー",
+        "message": "クイズゲーム用モーター制御統合サーバー（回答者再選択機能付き）",
         "websocket_endpoints": {
             "detection": "/ws/detection",
             "speech": "/ws/speech"
@@ -914,17 +975,24 @@ async def root():
         "motor_ready": motor_controller is not None and motor_controller.is_initialized,
         "vosk_ready": vosk_model is not None,
         "vad_ready": vad_model is not None,
-        "detector_ready": detector is not None
+        "detector_ready": detector is not None,
+        "features": [
+            "位置追跡（-90° 〜 +90°）",
+            "回答者再選択（ランダム回転）",
+            "ケーブル巻き込み防止"
+        ]
     }
 
 @app.get("/status")
 async def status():
     with motor_state_lock:
+        motor_angle = motor_controller.current_angle if motor_controller else 0.0
         return {
             "detection_running": detection_running,
             "active_connections": len(active_connections),
             "motor_running": motor_state["is_running"],
             "motor_stopped_for_answer": motor_state["is_stopped_for_answer"],
+            "motor_angle": f"{motor_angle:.1f}°",
             "vosk_model_loaded": vosk_model is not None,
             "vad_model_loaded": vad_model is not None,
             "detector_loaded": detector is not None,
@@ -934,28 +1002,51 @@ async def status():
 
 @app.post("/motor/resume")
 async def resume_motor():
-    """モーター再開API（解説終了後に呼ばれる）"""
+    """モーター再開API（解説終了後に呼ばれる）
+    
+    🆕 回答者再選択機能:
+    1. 現在の位置からランダムに回転（最大0.5秒）
+    2. 3秒待機（同じ人の再検出を避ける）
+    3. 通常の回転を再開
+    """
     global motor_state
     
     with motor_state_lock:
         if motor_state["is_stopped_for_answer"]:
+            print("\n" + "="*60)
             print("🔄 モーター再開リクエスト受信")
+            print("="*60)
+            
+            # ステップ1: ランダム回転で回答者を再選択
+            print("\n【ステップ1】回答者再選択のためランダム回転")
+            if motor_controller and motor_controller.is_initialized:
+                success = motor_controller.perform_random_rotation_for_reselection()
+                if not success:
+                    print("⚠️ ランダム回転に失敗しましたが、続行します")
+            
+            # ステップ2: 待機（同じ人の再検出を避ける）
+            print("\n【ステップ2】待機中（3秒）...")
+            await asyncio.sleep(3.0)
+            
+            # ステップ3: 回答待ち状態を解除
             motor_state["is_stopped_for_answer"] = False
             motor_state["snapshot_image"] = None
             motor_state["detection_timestamp"] = None
             
-            # 少し待機してから再開（同じ人の再検出を避ける）
-            await asyncio.sleep(3.0)
-            
+            # ステップ4: 通常の回転を再開
+            print("\n【ステップ3】通常回転を再開")
             if not motor_controller.is_running and motor_controller.is_initialized:
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
                 motor_state["is_running"] = True
                 print("✓ モーター再開完了")
             
-            return {"status": "resumed"}
+            print("="*60)
+            print()
+            
+            return {"status": "resumed", "message": "回答者再選択完了"}
         else:
-            return {"status": "not_stopped"}
+            return {"status": "not_stopped", "message": "回答待ち状態ではありません"}
 
 @app.websocket("/ws/detection")
 async def websocket_detection(websocket: WebSocket):
@@ -1051,3 +1142,4 @@ async def websocket_speech(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
