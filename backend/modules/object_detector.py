@@ -64,14 +64,22 @@ def initialize_detector():
         print(f"⚠️ 物体検出の初期化をスキップ: {e}")
 
 
-async def run_detection(motor_controller, broadcast_callback):
+async def run_detection(motor_controller_instance, broadcast_callback):
     """物体検出ループ（モーター制御統合版）
     
     Args:
-        motor_controller: モーターコントローラーインスタンス
+        motor_controller_instance: モーターコントローラーインスタンス
         broadcast_callback: メッセージブロードキャスト用コールバック
     """
     global detection_running, motor_state
+    
+    motor_controller = motor_controller_instance
+    
+    print(f"🔍 run_detection() 呼び出し:")
+    print(f"   detector: {detector is not None}")
+    print(f"   motor_controller: {motor_controller is not None}")
+    print(f"   motor_controller.is_initialized: {motor_controller.is_initialized if motor_controller else 'N/A'}")
+    print(f"   detection_running: {detection_running}")
     
     if detector is None or motor_controller is None or not motor_controller.is_initialized:
         print("⚠️ 検出またはモーターが初期化されていません")

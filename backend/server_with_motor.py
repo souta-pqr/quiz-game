@@ -209,11 +209,19 @@ async def resume_motor():
 @app.websocket("/ws/detection")
 async def websocket_detection(websocket: WebSocket):
     """物体検出WebSocketエンドポイント"""
+    print(f"🔌 WebSocket接続受信: /ws/detection")
     await websocket.accept()
     active_connections.add(websocket)
+    print(f"   アクティブ接続数: {len(active_connections)}")
+    
+    print(f"   detector: {detector is not None}")
+    print(f"   motor_controller: {motor_controller is not None}")
+    print(f"   motor_controller.is_initialized: {motor_controller.is_initialized if motor_controller else 'N/A'}")
+    print(f"   detection_running: {get_detection_running()}")
     
     if detector is not None and motor_controller is not None and motor_controller.is_initialized:
         if not get_detection_running():
+            print("✅ 物体検出を開始します")
             set_detection_running(True)
             
             # モーター初回起動
@@ -222,7 +230,10 @@ async def websocket_detection(websocket: WebSocket):
             with motor_state_lock:
                 motor_state["is_running"] = True
             
+            print("🚀 run_detection タスクを作成")
             asyncio.create_task(run_detection(motor_controller, broadcast_message))
+        else:
+            print("⚠️ 既に検出が実行中です")
     
     try:
         while True:
