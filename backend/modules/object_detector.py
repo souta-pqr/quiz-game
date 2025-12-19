@@ -38,6 +38,18 @@ def get_detection_running() -> bool:
     return detection_running
 
 
+def get_detector():
+    """detectorの値を取得"""
+    global detector
+    return detector
+
+
+def is_detector_ready() -> bool:
+    """detectorが初期化されているか確認"""
+    global detector
+    return detector is not None
+
+
 def initialize_detector():
     """物体検出初期化"""
     global detector

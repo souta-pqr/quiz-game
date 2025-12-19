@@ -21,11 +21,11 @@ from modules.motor_controller import MotorController
 from modules.object_detector import (
     initialize_detector, 
     run_detection, 
-    detector, 
     motor_state,
     motor_state_lock,
     set_detection_running,
-    get_detection_running
+    get_detection_running,
+    is_detector_ready
 )
 from modules.voice_recognition import (
     initialize_vosk,
@@ -118,7 +118,7 @@ async def root():
         "motor_ready": motor_controller is not None and motor_controller.is_initialized,
         "vosk_ready": vosk_model is not None,
         "vad_ready": vad_model is not None,
-        "detector_ready": detector is not None,
+        "detector_ready": is_detector_ready(),
         "features": [
             "位置追跡（-90° 〜 +90°）",
             "回答者再選択（ランダム回転）",
@@ -139,7 +139,7 @@ async def status():
             "motor_angle": f"{motor_angle:.1f}°",
             "vosk_model_loaded": vosk_model is not None,
             "vad_model_loaded": vad_model is not None,
-            "detector_loaded": detector is not None,
+            "detector_loaded": is_detector_ready(),
             "motor_initialized": motor_controller is not None and motor_controller.is_initialized,
             "gpio_library": GPIO_LIBRARY if GPIO_AVAILABLE else "dummy"
         }
@@ -214,12 +214,12 @@ async def websocket_detection(websocket: WebSocket):
     active_connections.add(websocket)
     print(f"   アクティブ接続数: {len(active_connections)}")
     
-    print(f"   detector: {detector is not None}")
+    print(f"   detector: {is_detector_ready()}")
     print(f"   motor_controller: {motor_controller is not None}")
     print(f"   motor_controller.is_initialized: {motor_controller.is_initialized if motor_controller else 'N/A'}")
     print(f"   detection_running: {get_detection_running()}")
     
-    if detector is not None and motor_controller is not None and motor_controller.is_initialized:
+    if is_detector_ready() and motor_controller is not None and motor_controller.is_initialized:
         if not get_detection_running():
             print("✅ 物体検出を開始します")
             set_detection_running(True)
