@@ -71,7 +71,7 @@ def initialize_detector():
             class_score_th=0.5,
             nms_th=0.6,
         )
-        print(f"✓ 物体検出モデルを初期化しました")
+        print(f"✓ 物体検出モデルを初期化しました (NanoDet)")
     except Exception as e:
         print(f"⚠️ 物体検出の初期化をスキップ: {e}")
 
@@ -105,10 +105,13 @@ async def run_detection(motor_controller_instance, broadcast_callback):
         print("❌ カメラを開けませんでした")
         return
     
-    print("✓ 物体検出を開始しました")
+    print("✓ 物体検出を開始しました (NanoDet)")
     person_class_id = 0
     stable_detection_count = 0
     STABLE_THRESHOLD = 3
+    
+    frame_count = 0
+    last_status_log = time.time()
     
     try:
         while detection_running:
@@ -117,10 +120,23 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                 await asyncio.sleep(0.1)
                 continue
             
+            frame_count += 1
+            
+            # 10秒ごとに状態ログ
+            current_time = time.time()
+            if current_time - last_status_log > 10.0:
+                print(f"📹 NanoDet検出動作中: {frame_count}フレーム処理済み")
+                last_status_log = current_time
+            
             # 物体検出
             bboxes, scores, class_ids = detector.inference(frame)
             person_count = sum(1 for i, cid in enumerate(class_ids) if cid == person_class_id and scores[i] >= 0.6)
             person_detected = person_count > 0
+            
+            # 50フレームごとにログ
+            if frame_count % 50 == 0:
+                status = "🟢検出中" if person_detected else "⚪検出なし"
+                print(f"{status} [フレーム{frame_count}] 人物={person_count}人, 連続={stable_detection_count}")
             
             with motor_state_lock:
                 # モーター制御ロジック
@@ -134,7 +150,10 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                     if stable_detection_count >= STABLE_THRESHOLD:
                         # 人を安定検出 → モーター停止
                         if motor_controller.is_running:
-                            print(f"\n👤 人検出確定! モーター停止 👤\n")
+                            print(f"\n{'='*60}")
+                            print(f"👤 人検出確定! ({person_count}人) モーター停止")
+                            print(f"   検出回数: {stable_detection_count}")
+                            print(f"{'='*60}\n")
                             motor_controller.request_emergency_stop()
                         
                         # スナップショット取得（人の部分を切り取り）
@@ -157,6 +176,8 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                             
                             motor_state["snapshot_image"] = img_base64
                             motor_state["detection_timestamp"] = time.time()
+                            
+                            print(f"📷 スナップショット取得: {len(img_base64)}バイト")
                         
                         # クライアントに通知
                         await broadcast_callback({
@@ -165,6 +186,8 @@ async def run_detection(motor_controller_instance, broadcast_callback):
                             "snapshot": motor_state["snapshot_image"],
                             "timestamp": time.time()
                         })
+                        
+                        print(f"📤 クライアントに通知送信完了")
                         
                         # 回答待ち状態に移行
                         motor_state["is_stopped_for_answer"] = True
@@ -198,4 +221,5 @@ async def run_detection(motor_controller_instance, broadcast_callback):
     
     finally:
         cap.release()
-        print("✓ 物体検出を停止しました")
+        print(f"✓ 物体検出を停止しました (総フレーム数: {frame_count})")
+        
