@@ -212,16 +212,16 @@ const App = () => {
   // フィードバック中は音声認識を一時停止
   useEffect(() => {
     if (showFeedback || isMotorProcessing) {
-      if (isWhisperListening) {
+      if (isVoiceListening) {
         console.log('⏸️ フィードバック/モーター処理中：音声認識を一時停止');
-        stopWhisperListening();
+        stopVoiceListening();
       }
     } else if (gameState === 'playing') {
       // フィードバック終了後、少し待ってから再開
       const restartTimer = setTimeout(() => {
-        if (!isWhisperListening && isWhisperSupported && isWhisperConnected) {
+        if (!isVoiceListening && isVoiceSupported && isVoiceConnected) {
           console.log('▶️ 音声認識を再開');
-          startWhisperListening();
+          startVoiceListening();
         }
       }, 300);
       
@@ -247,7 +247,7 @@ const App = () => {
       setScore(0);
       setAnswers([]);
       setGameState('playing');
-      clearWhisperHistory();
+      clearVoiceHistory();
       
       console.log('✅ ゲームリセット完了');
       
@@ -256,7 +256,7 @@ const App = () => {
         console.log('✅ モーター再開完了');
       });
     }, 100);
-  }, [clearWhisperHistory, resumeMotor]);
+  }, [clearVoiceHistory, resumeMotor]);
 
   // クイズ終了画面
   if (gameState === 'finished') {
@@ -331,11 +331,11 @@ const App = () => {
           </div>
 
           <div className={`flex items-center gap-2 p-3 rounded-lg transition-colors ${
-            isWhisperConnected ? 'bg-red-50 border-2 border-red-600' : 'bg-gray-50 border-2 border-gray-300'
+            isVoiceConnected ? 'bg-red-50 border-2 border-red-600' : 'bg-gray-50 border-2 border-gray-300'
           }`}>
-            <div className={`w-3 h-3 rounded-full ${isWhisperConnected ? 'bg-red-600 animate-pulse' : 'bg-gray-400'}`}></div>
-            <span className={`text-xs font-medium ${isWhisperConnected ? 'text-red-800' : 'text-gray-600'}`}>
-              🎅 Whisper: {isWhisperConnected ? '接続' : '切断'}
+            <div className={`w-3 h-3 rounded-full ${isVoiceConnected ? 'bg-red-600 animate-pulse' : 'bg-gray-400'}`}></div>
+            <span className={`text-xs font-medium ${isVoiceConnected ? 'text-red-800' : 'text-gray-600'}`}>
+              🎅 音声認識 (Vosk): {isVoiceConnected ? '接続' : '切断'}
             </span>
           </div>
         </div>
