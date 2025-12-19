@@ -20,6 +20,8 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
   const isActiveRef = useRef(true);
   const audioChunkCountRef = useRef(0);
   const shouldRestartRef = useRef(true);
+  const lastAnswerTimeRef = useRef(0); // 最後の回答送信時刻
+  const answerCooldownMs = 3000; // 回答のクールダウン時間（3秒）
 
   // 音声データを処理してバックエンドに送信
   const processAudioData = useCallback((audioData) => {
@@ -92,10 +94,20 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
             setDebugInfo(`認識: ${data.text}`);
           }
           
-          // 回答が検出された場合
+          // 回答が検出された場合（クールダウンチェック）
           if (data.is_final && data.answer !== null && data.answer !== undefined) {
-            onAnswer(data.answer);
-            setRecognizedText('');
+            const now = Date.now();
+            const timeSinceLastAnswer = now - lastAnswerTimeRef.current;
+            
+            if (timeSinceLastAnswer < answerCooldownMs) {
+              console.log(`⏸️ 回答クールダウン中（${Math.round(timeSinceLastAnswer / 1000)}秒経過、${answerCooldownMs / 1000}秒必要）`);
+              setDebugInfo(`クールダウン中...`);
+            } else {
+              console.log(`✅ 回答送信: ${data.answer ? 'まる' : 'ばつ'} (テキスト: "${data.text}")`);
+              lastAnswerTimeRef.current = now;
+              onAnswer(data.answer);
+              setRecognizedText('');
+            }
           }
         } else if (data.type === 'speech_status') {
           // 音声認識ステータスの更新
@@ -230,6 +242,7 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
     }
     
     audioChunkCountRef.current = 0;
+    lastAnswerTimeRef.current = 0; // クールダウンもリセット
     setIsListening(false);
     setDebugInfo('停止');
   }, []);
@@ -237,6 +250,7 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
   // 履歴をクリア
   const clearHistory = useCallback(() => {
     setRecognitionHistory([]);
+    lastAnswerTimeRef.current = 0; // クールダウンもリセット
     setDebugInfo('履歴クリア');
   }, []);
 

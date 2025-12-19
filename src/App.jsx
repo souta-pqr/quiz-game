@@ -20,6 +20,16 @@ const App = () => {
   const [isMotorProcessing, setIsMotorProcessing] = useState(false); // 🆕 モーター処理中フラグ
   const isProcessingRef = useRef(false);
   const audioPlayRequestRef = useRef(false);
+  const currentQuestionRef = useRef(currentQuestion); // 最新の問題番号を保持
+  
+  // currentQuestionが変わったらrefを更新
+  useEffect(() => {
+    currentQuestionRef.current = currentQuestion;
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`📍 問題番号更新: ${currentQuestion + 1}/${quizData.length}`);
+    console.log(`📊 状態: isProcessing=${isProcessingRef.current}, showFeedback=${showFeedback}`);
+    console.log(`${'='.repeat(60)}\n`);
+  }, [currentQuestion]);
 
   // 正解/不正解の音声を再生
   const playAnswerSound = useCallback((isCorrect) => {
@@ -54,21 +64,30 @@ const App = () => {
     }
   }, []);
 
-  // 回答処理
+  // 回答処理（refから最新の問題番号を取得）
   const handleAnswer = useCallback((userAnswer) => {
+    // 最新の問題番号を取得
+    const latestQuestion = currentQuestionRef.current;
+    
     if (isProcessingRef.current) {
-      console.log('⏸️ 既に処理中のため、回答をスキップ');
+      console.log(`⏸️ 既に処理中のため、回答をスキップ (問題${latestQuestion + 1})`);
       return;
     }
     
-    console.log(`📝 回答受付: ${userAnswer ? 'まる' : 'ばつ'}`);
+    console.log(`📝 回答受付: ${userAnswer ? 'まる' : 'ばつ'} (問題${latestQuestion + 1})`);
     isProcessingRef.current = true;
     
-    // 現在の問題を取得
-    const currentQuiz = quizData[currentQuestion];
+    // 最新の問題を取得
+    const currentQuiz = quizData[latestQuestion];
+    if (!currentQuiz) {
+      console.error(`❌ 問題データが見つかりません: ${latestQuestion}`);
+      isProcessingRef.current = false;
+      return;
+    }
+    
     const isCorrect = userAnswer === currentQuiz.answer;
     
-    console.log(`📍 現在の問題: ${currentQuestion + 1}/${quizData.length}`);
+    console.log(`📍 処理対象の問題: ${latestQuestion + 1}/${quizData.length}`);
     
     // 回答直後に回答者画像と音声トリガーをクリア
     setRespondentImage(null);
@@ -102,8 +121,8 @@ const App = () => {
       setShowFeedback(false);
       setLastAnswer(null);
       
-      // 次の問題があるかチェック
-      const nextQuestion = currentQuestion + 1;
+      // 次の問題があるかチェック（refから最新の値を取得）
+      const nextQuestion = latestQuestion + 1;
       console.log(`🔍 次の問題判定: nextQuestion=${nextQuestion}, total=${quizData.length}`);
       
       if (nextQuestion < quizData.length) {
@@ -118,11 +137,16 @@ const App = () => {
           console.log('✅ モーター再開完了');
         });
         
-        // 状態更新を確実に実行
+        // 状態更新を確実に実行（モーター処理完了を待つ）
         setTimeout(() => {
+          console.log(`🔄 問題を${nextQuestion + 1}に更新`);
           setCurrentQuestion(nextQuestion);
-          isProcessingRef.current = false;
-          console.log(`✨ 問題${nextQuestion + 1}を表示、処理フラグリセット`);
+          
+          // 処理フラグをリセット（少し遅延させて確実に）
+          setTimeout(() => {
+            isProcessingRef.current = false;
+            console.log(`✅ 問題${nextQuestion + 1}表示完了、処理フラグリセット`);
+          }, 200);
         }, 100);
       } else {
         console.log(`🎉 クイズ終了（全${quizData.length}問完了）`);
@@ -130,7 +154,7 @@ const App = () => {
         setGameState('finished');
       }
     }, 2000);
-  }, [currentQuestion, playAnswerSound, resumeMotor]);
+  }, [playAnswerSound, resumeMotor]); // currentQuestionを依存配列から削除（refを使用）
 
   // Vosk音声認識
   const {
@@ -205,11 +229,11 @@ const App = () => {
     };
   }, [handleAnswer, showFeedback, gameState, isMotorProcessing]);
 
-  // フィードバック中は音声認識を一時停止
+  // フィードバック中または処理中は音声認識を一時停止
   useEffect(() => {
-    if (showFeedback || isMotorProcessing) {
+    if (showFeedback || isMotorProcessing || isProcessingRef.current) {
       if (isVoiceListening) {
-        console.log('⏸️ フィードバック/モーター処理中：音声認識を一時停止');
+        console.log('⏸️ フィードバック/モーター処理/回答処理中：音声認識を一時停止');
         stopVoiceListening();
       }
     } else if (gameState === 'playing') {
@@ -219,7 +243,7 @@ const App = () => {
           console.log('▶️ 音声認識を再開');
           startVoiceListening();
         }
-      }, 300);
+      }, 500); // 500msに延長して安定性向上
       
       return () => clearTimeout(restartTimer);
     }
