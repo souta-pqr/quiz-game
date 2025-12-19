@@ -4,10 +4,9 @@ uvicorn[standard]==0.32.1
 websockets==14.1
 python-multipart==0.0.6
 
-# 画像処理・物体検出
+# 画像処理（OpenCV Cascadeを使用）
 opencv-python==4.10.0.84
 numpy==1.26.4
-onnxruntime==1.20.1
 
 # 音声認識（Vosk軽量版 - 約50MB）
 vosk==0.3.45
