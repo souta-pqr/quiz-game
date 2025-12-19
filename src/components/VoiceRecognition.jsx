@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Mic, MicOff, Volume2, WifiOff, Trash2, Zap } from 'lucide-react';
 
 /**
- * VoiceRecognition Component
+ * VoiceRecognition Component（デバッグ版）
  * 音声認識UI（バックエンド: Vosk + Silero VAD）
  */
 const VoiceRecognition = ({ 
@@ -17,7 +17,25 @@ const VoiceRecognition = ({
   onStop,
   onClearHistory
 }) => {
+  // コンポーネントマウント時
+  useEffect(() => {
+    console.log('🎨 VoiceRecognition コンポーネントマウント');
+    console.log('  isSupported:', isSupported);
+    console.log('  isConnected:', isConnected);
+    console.log('  isListening:', isListening);
+  }, []);
+
+  // 状態変化をログ
+  useEffect(() => {
+    console.log('🔄 VoiceRecognition 状態変化:');
+    console.log('  isListening:', isListening);
+    console.log('  isConnected:', isConnected);
+    console.log('  disabled:', disabled);
+    console.log('  recognizedText:', recognizedText);
+  }, [isListening, isConnected, disabled, recognizedText]);
+
   if (!isSupported) {
+    console.warn('⚠️ マイク非対応');
     return (
       <div className="bg-yellow-50 p-4 rounded-lg mb-6 border border-yellow-200">
         <p className="text-sm text-yellow-800">
@@ -28,6 +46,7 @@ const VoiceRecognition = ({
   }
 
   if (!isConnected) {
+    console.warn('⚠️ WebSocket未接続');
     return (
       <div className="bg-red-50 p-4 rounded-lg mb-6 border border-red-200">
         <div className="flex items-center gap-2 mb-2">
@@ -58,7 +77,7 @@ const VoiceRecognition = ({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-red-700" />
-          <span className="font-bold text-red-800">🎤 音声認識 </span>
+          <span className="font-bold text-red-800">🎤 音声認識 (Vosk)</span>
           {isListening && !disabled && (
             <div className="flex items-center gap-1 ml-2">
               <Zap className="w-4 h-4 text-green-600 animate-pulse" />
@@ -77,7 +96,10 @@ const VoiceRecognition = ({
               </div>
               {onStop && (
                 <button
-                  onClick={onStop}
+                  onClick={() => {
+                    console.log('🛑 停止ボタンクリック');
+                    onStop();
+                  }}
                   className="px-3 py-1 rounded-lg bg-red-100 hover:bg-red-200 transition text-red-700 text-sm font-semibold border-2 border-red-400"
                 >
                   <MicOff className="w-4 h-4" />
@@ -86,7 +108,10 @@ const VoiceRecognition = ({
             </>
           ) : (
             <button
-              onClick={onStart}
+              onClick={() => {
+                console.log('▶️ 再開ボタンクリック');
+                onStart();
+              }}
               disabled={disabled}
               className={`px-3 py-1 rounded-lg transition text-sm font-bold border-2 ${
                 disabled 
@@ -130,20 +155,23 @@ const VoiceRecognition = ({
         </div>
       )}
       
-      {/* デバッグ情報 - コメントアウト */}
-      {/* {debugInfo && (
-        <div className="mb-3 p-2 bg-gray-100 rounded text-xs font-mono text-gray-600 border border-gray-300">
-          🔍 {debugInfo}
+      {/* デバッグ情報 */}
+      {debugInfo && (
+        <div className="mb-3 p-2 bg-blue-50 rounded text-xs font-mono text-blue-800 border border-blue-300">
+          🔍 Debug: {debugInfo}
         </div>
-      )} */}
+      )}
       
-      {/* 認識履歴 - コメントアウト */}
-      {/* {recognitionHistory.length > 0 && (
+      {/* 認識履歴 */}
+      {recognitionHistory.length > 0 && (
         <div className="mt-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-600">📝 認識履歴（最新{recognitionHistory.length}件）</span>
             <button
-              onClick={onClearHistory}
+              onClick={() => {
+                console.log('🗑️ 履歴クリアボタンクリック');
+                onClearHistory();
+              }}
               className="text-xs text-gray-500 hover:text-red-600 transition flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" />
@@ -175,20 +203,7 @@ const VoiceRecognition = ({
             ))}
           </div>
         </div>
-      )} */}
-      
-      {/* ステータス表示 - コメントアウト */}
-      {/* {!isListening && recognitionHistory.length === 0 && !disabled && (
-        <div className="mt-3 text-xs text-gray-600 bg-white p-3 rounded border border-purple-200">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-purple-500" />
-            <div>
-              <strong>Vosk + Silero VAD:</strong> 音声認識は自動的に開始されます。
-              VADが音声区間を検出すると、Voskが認識を実行します。
-            </div>
-          </div>
-        </div>
-      )} */}
+      )}
       
       {disabled && (
         <div className="mt-3 text-xs text-gray-600 bg-yellow-50 p-2 rounded border border-yellow-300">
