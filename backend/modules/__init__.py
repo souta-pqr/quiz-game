@@ -4,7 +4,7 @@
 
 from .gpio_controller import GPIOWrapper, GPIO_AVAILABLE, GPIO_LIBRARY
 from .motor_controller import MotorController
-from .object_detector import (
+from .object_detector_cascade import (
     initialize_detector, 
     run_detection, 
     motor_state, 
