@@ -16,7 +16,7 @@ from .gpio_controller import GPIOWrapper, GPIO_AVAILABLE, ON, OFF, START_STOP, R
 # ===================================
 HALF_ROTATION_TIME = 0.9  # 半回転（180°）にかかる時間
 STEP_DURATION = 0.15
-STEP_PAUSE = 0.50
+STEP_PAUSE = 0.80
 
 
 class MotorController:
