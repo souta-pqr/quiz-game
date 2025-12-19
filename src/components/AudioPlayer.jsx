@@ -36,11 +36,14 @@ const AudioPlayer = forwardRef(({ audioSrc, autoPlay = false }, ref) => {
     setIsPlaying(false);
   };
 
+  // autoPlayがtrueの場合のみ、audioSrcが変わったときに自動再生
+  // ただし、基本的にはref経由のplay()呼び出しを推奨
   React.useEffect(() => {
     if (autoPlay && audioRef.current) {
+      console.log('⚠️ AudioPlayer: autoPlayによる自動再生（非推奨）');
       playAudio();
     }
-  }, [audioSrc, autoPlay]);
+  }, [audioSrc]);
 
   return (
     <div className="flex items-center gap-2">

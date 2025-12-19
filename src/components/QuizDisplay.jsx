@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Check, X } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
 
-const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = false, respondentImage = null }) => {
+const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, lastAnswer, shouldPlayAudio = null, respondentImage = null }) => {
   // quizがundefinedの場合のガード
   if (!quiz) {
     return (
@@ -16,13 +16,15 @@ const QuizDisplay = ({ quiz, currentQuestion, totalQuestions, showFeedback, last
   const audioSrc = `/audio/question_${quiz.id}.wav`;
   const audioPlayerRef = useRef(null);
 
-  // 物体検出からのトリガーで音声再生
+  // 物体検出からのトリガーで音声再生（問題番号が一致する場合のみ）
   useEffect(() => {
-    if (shouldPlayAudio && audioPlayerRef.current) {
-      console.log('🔊 物体検出トリガーにより音声を再生します');
+    if (shouldPlayAudio === currentQuestion && audioPlayerRef.current) {
+      console.log(`🔊 問題${currentQuestion + 1}の音声を再生します`);
       audioPlayerRef.current.play();
+    } else if (shouldPlayAudio !== null && shouldPlayAudio !== currentQuestion) {
+      console.log(`⚠️ 音声再生スキップ: shouldPlayAudio=${shouldPlayAudio}, currentQuestion=${currentQuestion}`);
     }
-  }, [shouldPlayAudio]);
+  }, [shouldPlayAudio, currentQuestion]);
 
   // 回答者画像の状態をログ
   useEffect(() => {

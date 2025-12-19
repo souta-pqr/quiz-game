@@ -15,7 +15,7 @@ const App = () => {
   const [gameState, setGameState] = useState('playing');
   const [showFeedback, setShowFeedback] = useState(false);
   const [lastAnswer, setLastAnswer] = useState(null);
-  const [shouldPlayAudio, setShouldPlayAudio] = useState(false);
+  const [shouldPlayAudio, setShouldPlayAudio] = useState(null); // 問題番号を保持
   const [respondentImage, setRespondentImage] = useState(null);
   const [isMotorProcessing, setIsMotorProcessing] = useState(false); // 🆕 モーター処理中フラグ
   const isProcessingRef = useRef(false);
@@ -70,9 +70,11 @@ const App = () => {
     
     console.log(`📍 現在の問題: ${currentQuestion + 1}/${quizData.length}`);
     
-    // 回答直後に回答者画像をクリア
+    // 回答直後に回答者画像と音声トリガーをクリア
     setRespondentImage(null);
-    console.log('🧹 回答者画像をクリア');
+    setShouldPlayAudio(null);
+    audioPlayRequestRef.current = false;
+    console.log('🧹 回答者画像と音声トリガーをクリア');
     
     // 正解/不正解の音声を再生
     playAnswerSound(isCorrect);
@@ -106,6 +108,10 @@ const App = () => {
       
       if (nextQuestion < quizData.length) {
         console.log(`➡️ 次の問題へ移行: ${nextQuestion + 1}/${quizData.length}`);
+        
+        // 古い問題の状態をクリア
+        setShouldPlayAudio(null);
+        audioPlayRequestRef.current = false;
         
         // モーター再開を非同期で実行（処理中画面が表示される）
         resumeMotor().then(() => {
@@ -142,23 +148,25 @@ const App = () => {
   // 物体検出からの音声再生トリガー
   const handlePlayAudioTrigger = useCallback(() => {
     audioPlayRequestRef.current = true;
-    setShouldPlayAudio(true);
+    // 現在の問題番号を設定（どの問題の音声を再生するか明示）
+    setShouldPlayAudio(currentQuestion);
     
     setTimeout(() => {
       audioPlayRequestRef.current = false;
-      setShouldPlayAudio(false);
+      setShouldPlayAudio(null);
     }, 1000);
-  }, []);
+  }, [currentQuestion]);
 
   // 人検出時のコールバック（回答者画像を受信）
   const handlePersonSelected = useCallback((snapshot) => {
     console.log('👤 回答者選択完了');
+    console.log(`📍 現在の問題: ${currentQuestion + 1}/${quizData.length}`);
     setRespondentImage(snapshot);
     
-    // 音声を自動再生
-    console.log('🎵 問題音声を自動再生');
+    // 音声を自動再生（現在の問題番号で）
+    console.log(`🎵 問題${currentQuestion + 1}の音声を自動再生`);
     handlePlayAudioTrigger();
-  }, [handlePlayAudioTrigger]);
+  }, [handlePlayAudioTrigger, currentQuestion]);
 
   // モーター処理状態のコールバック
   const handleMotorProcessing = useCallback((status) => {
@@ -227,7 +235,7 @@ const App = () => {
     setIsMotorProcessing(false);
     isProcessingRef.current = false;
     audioPlayRequestRef.current = false;
-    setShouldPlayAudio(false);
+    setShouldPlayAudio(null);
     
     // 少し待ってから初期化
     setTimeout(() => {
