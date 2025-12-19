@@ -36,27 +36,22 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
     }
   }, []);
 
-  // 音声データを16kHz, 16-bit PCMに変換
+  // 音声データを16kHz, 16-bit PCMに変換（最適化版）
   const convertTo16kHzPCM = (audioData) => {
     const sampleRate = audioContextRef.current?.sampleRate || 48000;
     const targetSampleRate = 16000;
     
-    // リサンプリング
+    // リサンプリング（高速化：整数インデックスのみ使用）
     const ratio = sampleRate / targetSampleRate;
-    const newLength = Math.round(audioData.length / ratio);
-    const result = new Float32Array(newLength);
-    
-    for (let i = 0; i < newLength; i++) {
-      const index = Math.floor(i * ratio);
-      result[i] = audioData[index];
-    }
-    
-    // 16-bit PCMに変換
-    const buffer = new ArrayBuffer(result.length * 2);
+    const newLength = Math.floor(audioData.length / ratio);
+    const buffer = new ArrayBuffer(newLength * 2);
     const view = new DataView(buffer);
     
-    for (let i = 0; i < result.length; i++) {
-      const s = Math.max(-1, Math.min(1, result[i]));
+    // リサンプリングと16-bit PCM変換を同時に実行
+    for (let i = 0; i < newLength; i++) {
+      const index = Math.floor(i * ratio);
+      const sample = audioData[index];
+      const s = Math.max(-1, Math.min(1, sample));
       view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
     
@@ -180,8 +175,8 @@ export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:800
       const source = audioContext.createMediaStreamSource(stream);
       
       // ScriptProcessorNodeでリアルタイム処理
-      // バッファサイズを4096に設定（約85msごとに処理）
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      // バッファサイズを8192に設定（約170msごとに処理、負荷軽減）
+      const processor = audioContext.createScriptProcessor(8192, 1, 1);
       processorRef.current = processor;
       
       processor.onaudioprocess = (e) => {

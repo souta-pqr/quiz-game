@@ -54,29 +54,6 @@ const App = () => {
     }
   }, []);
 
-  // 🆕 WebSocketでモーター処理状態を監視
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/detection');
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.type === 'motor_processing') {
-        if (data.status === 'started') {
-          console.log('🔄 モーター処理開始');
-          setIsMotorProcessing(true);
-        } else if (data.status === 'completed') {
-          console.log('✓ モーター処理完了');
-          setIsMotorProcessing(false);
-        }
-      }
-    };
-    
-    return () => {
-      ws.close();
-    };
-  }, []);
-
   // 回答処理
   const handleAnswer = useCallback((userAnswer) => {
     if (isProcessingRef.current) {
@@ -183,7 +160,18 @@ const App = () => {
     handlePlayAudioTrigger();
   }, [handlePlayAudioTrigger]);
 
-  const { isConnected: isDetectionConnected, personDetected, detectionCount } = useObjectDetection(handlePlayAudioTrigger, handlePersonSelected);
+  // モーター処理状態のコールバック
+  const handleMotorProcessing = useCallback((status) => {
+    if (status === 'started') {
+      console.log('🔄 モーター処理開始');
+      setIsMotorProcessing(true);
+    } else if (status === 'completed') {
+      console.log('✓ モーター処理完了');
+      setIsMotorProcessing(false);
+    }
+  }, []);
+
+  const { isConnected: isDetectionConnected, personDetected, detectionCount } = useObjectDetection(handlePlayAudioTrigger, handlePersonSelected, handleMotorProcessing);
 
   // キーボードイベント
   useEffect(() => {
@@ -293,14 +281,12 @@ const App = () => {
       {/* 🆕 モーター処理中オーバーレイ */}
       <MotorProcessingOverlay isVisible={isMotorProcessing} />
       
-      {/* 雪の結晶アニメーション */}
+      {/* 雪の結晶アニメーション（軽量化：減らして静的に） */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-10 left-10 text-white text-4xl animate-bounce">❄️</div>
-        <div className="absolute top-20 right-20 text-white text-3xl animate-pulse">⛄</div>
-        <div className="absolute bottom-20 left-20 text-white text-3xl animate-bounce">🎄</div>
-        <div className="absolute bottom-10 right-10 text-white text-4xl animate-pulse">🎅</div>
-        <div className="absolute top-1/3 left-1/4 text-white text-2xl animate-pulse">✨</div>
-        <div className="absolute top-2/3 right-1/3 text-white text-2xl animate-bounce">🎁</div>
+        <div className="absolute top-10 left-10 text-white text-4xl opacity-70">❄️</div>
+        <div className="absolute top-20 right-20 text-white text-3xl opacity-70">⛄</div>
+        <div className="absolute bottom-20 left-20 text-white text-3xl opacity-70">🎄</div>
+        <div className="absolute bottom-10 right-10 text-white text-4xl opacity-70">�</div>
       </div>
       
       <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative border-8 border-red-600" style={{
@@ -311,8 +297,8 @@ const App = () => {
         <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-6xl">
           🎄
         </div>
-        <div className="absolute -top-2 left-8 text-3xl animate-pulse">⭐</div>
-        <div className="absolute -top-2 right-8 text-3xl animate-pulse">⭐</div>
+        <div className="absolute -top-2 left-8 text-3xl opacity-80">⭐</div>
+        <div className="absolute -top-2 right-8 text-3xl opacity-80">⭐</div>
         
         {/* ヘッダー */}
         <div className="mb-6 mt-4">

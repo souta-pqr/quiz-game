@@ -39,17 +39,9 @@ def initialize_vosk():
     global vosk_model
     
     try:
-        print("="*60)
-        print("Vosk音声認識モデル初期化開始")
-        print("="*60)
-        
         # modules/ディレクトリの親ディレクトリ（backend/）を基準にする
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         model_path = os.path.join(script_dir, 'vosk-model-small-ja-0.22')
-        
-        print(f"📂 スクリプトディレクトリ: {script_dir}")
-        print(f"📂 モデルパス: {model_path}")
-        print(f"📂 モデル存在確認: {os.path.exists(model_path)}")
         
         if not os.path.exists(model_path):
             print(f"❌ Voskモデルが見つかりません: {model_path}")
@@ -59,16 +51,11 @@ def initialize_vosk():
             print("  unzip vosk-model-small-ja-0.22.zip")
             return
         
-        print(f"⏳ Voskモデル読み込み中...")
         vosk_model = Model(model_path)
         print(f"✅ Vosk小モデルを初期化しました")
-        print(f"✅ グローバル変数 vosk_model を設定: {vosk_model is not None}")
-        print("="*60)
         
     except Exception as e:
         print(f"❌ Voskモデルの初期化に失敗: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def initialize_vad():
@@ -76,11 +63,6 @@ def initialize_vad():
     global vad_model
     
     try:
-        print("="*60)
-        print("Silero VADモデル初期化開始")
-        print("="*60)
-        
-        print("⏳ Silero VADモデルをダウンロード中...")
         vad_model, utils = torch.hub.load(
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
@@ -88,13 +70,9 @@ def initialize_vad():
             onnx=False
         )
         print("✅ Silero VADモデルを初期化しました")
-        print(f"✅ グローバル変数 vad_model を設定: {vad_model is not None}")
-        print("="*60)
         
     except Exception as e:
         print(f"❌ Silero VADの初期化に失敗: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def detect_answer_keyword(text: str) -> Optional[bool]:
@@ -160,10 +138,6 @@ class FastKeywordSpotter:
         """音声チャンク処理"""
         # グローバル変数を直接チェック
         if vad_model is None or self.recognizer is None:
-            if vad_model is None:
-                print(f"⚠️ VADモデルが未初期化（接続ID: {self.connection_id}）")
-            if self.recognizer is None:
-                print(f"⚠️ Voskレコグナイザーが未初期化（接続ID: {self.connection_id}）")
             return None
         
         self.audio_buffer.extend(audio_data)
@@ -193,14 +167,12 @@ class FastKeywordSpotter:
             # グローバル変数を直接使用
             speech_prob = vad_model(audio_tensor, SAMPLE_RATE).item()
         except Exception as e:
-            print(f"❌ VAD処理エラー: {e}")
             return None
         
         is_speech_now = speech_prob > self.vad_threshold
         
         if is_speech_now and not self.is_speech:
             # 音声開始
-            print(f"🎤 音声検出開始 (確率: {speech_prob:.3f}, 閾値: {self.vad_threshold})")
             self.is_speech = True
             self.silence_duration = 0
             
@@ -210,13 +182,6 @@ class FastKeywordSpotter:
             
             if self.recognizer:
                 self.recognizer.Reset()
-            
-            # 音声検出開始をクライアントに通知
-            return {
-                'type': 'speech_status',
-                'status': 'speech_started',
-                'message': '音声を検出しました'
-            }
         
         elif is_speech_now and self.is_speech:
             # 音声継続中
@@ -230,11 +195,8 @@ class FastKeywordSpotter:
                 result = json.loads(self.recognizer.Result())
                 text = result.get('text', '').strip()
                 
-                print(f"🗣️ Vosk認識結果（確定）: '{text}'")
-                
                 if text:
                     answer = detect_answer_keyword(text)
-                    print(f"🎯 キーワード判定: テキスト='{text}', 回答={answer}")
                     if answer is not None:
                         self.is_speech = False
                         self.speech_buffer = []
@@ -250,10 +212,8 @@ class FastKeywordSpotter:
                 partial_text = partial_result.get('partial', '').strip()
                 
                 if partial_text:
-                    print(f"🗣️ Vosk認識結果（部分）: '{partial_text}'")
                     answer = detect_answer_keyword(partial_text)
                     if answer is not None:
-                        print(f"🎯 キーワード判定（部分）: テキスト='{partial_text}', 回答={answer}")
                         self.is_speech = False
                         self.speech_buffer = []
                         
@@ -278,12 +238,9 @@ class FastKeywordSpotter:
             if self.silence_duration > 0.3:
                 duration = len(self.speech_buffer) / SAMPLE_RATE
                 
-                print(f"🔇 音声終了検出 (無音時間: {self.silence_duration:.2f}s, 音声長: {duration:.2f}s)")
-                
                 if duration >= self.min_speech_duration:
                     return self._finalize_recognition()
                 else:
-                    print(f"⚠️ 音声が短すぎるためスキップ (最小: {self.min_speech_duration}s)")
                     self.is_speech = False
                     self.speech_buffer = []
         
@@ -297,15 +254,11 @@ class FastKeywordSpotter:
             return None
         
         try:
-            print(f"🎤 音声認識確定処理開始 (バッファサイズ: {len(self.speech_buffer)} サンプル)")
             result = json.loads(self.recognizer.FinalResult())
             text = result.get('text', '').strip()
             
-            print(f"🗣️ Vosk最終認識結果: '{text}'")
-            
             if text:
                 answer = detect_answer_keyword(text)
-                print(f"🎯 キーワード判定（最終）: テキスト='{text}', 回答={answer}")
                 
                 self.is_speech = False
                 self.speech_buffer = []
@@ -316,13 +269,9 @@ class FastKeywordSpotter:
                     'answer': answer,
                     'is_final': True
                 }
-            else:
-                print(f"⚠️ 認識結果が空文字列")
         
         except Exception as e:
-            print(f"❌ 認識エラー: {e}")
-            import traceback
-            traceback.print_exc()
+            pass
         
         self.is_speech = False
         self.speech_buffer = []

@@ -37,32 +37,14 @@ audio_buffers = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """ライフサイクル管理"""
-    print("\n" + "="*80)
-    print("🚀 サーバー起動処理開始")
-    print("="*80 + "\n")
+    print("サーバー起動処理開始...")
     
-    print("1️⃣ 物体検出初期化...")
     initialize_detector()
-    
-    print("\n2️⃣ VAD初期化...")
     voice_recognition.initialize_vad()
-    
-    print("\n3️⃣ Vosk初期化...")
     voice_recognition.initialize_vosk()
-    
-    print("\n4️⃣ モーター初期化...")
     initialize_motor()
     
-    print("\n" + "="*80)
-    print("✅ サーバー起動処理完了")
-    print("="*80)
-    print(f"📊 初期化状態:")
-    print(f"  - 物体検出: {is_detector_ready()}")
-    print(f"  - VADモデル: {voice_recognition.vad_model is not None}")
-    print(f"  - Voskモデル: {voice_recognition.vosk_model is not None}")
-    print(f"  - モーター: {motor_controller is not None and motor_controller.is_initialized}")
-    print(f"  - GPIO: {GPIO_LIBRARY if GPIO_AVAILABLE else 'ダミーモード'}")
-    print("="*80 + "\n")
+    print("サーバー起動処理完了")
     
     yield
     
@@ -86,15 +68,14 @@ def initialize_motor():
     global motor_controller
     
     if GPIO_AVAILABLE:
-        if not GPIOWrapper.setup_pins():
-            print("❌ GPIOピンのセットアップに失敗しました")
+        GPIOWrapper.setup_pins()
     
     motor_controller = MotorController()
     
     try:
         motor_controller.initialize()
     except Exception as e:
-        print(f"⚠️ モーター初期化に失敗しましたが、続行します: {e}")
+        print(f"モーター初期化エラー: {e}")
 
 
 def cleanup_motor():
@@ -169,12 +150,7 @@ async def resume_motor():
     
     with motor_state_lock:
         if motor_state["is_stopped_for_answer"]:
-            print("\n" + "="*60)
-            print("🔄 モーター再開リクエスト受信")
-            print("="*60)
-            
-            # ステップ0: モーター処理中を通知
-            print("\n【ステップ0】クライアントに処理開始を通知")
+            # モーター処理中を通知
             await broadcast_message({
                 "type": "motor_processing",
                 "message": "次の回答者を選んでいます...",
@@ -182,24 +158,19 @@ async def resume_motor():
             })
             await asyncio.sleep(0.5)
             
-            # ステップ1: 交互ランダム回転で回答者を再選択
-            print("\n【ステップ1】回答者再選択のため交互ランダム回転")
+            # 交互ランダム回転で回答者を再選択
             if motor_controller and motor_controller.is_initialized:
-                success = motor_controller.perform_random_rotation_for_reselection()
-                if not success:
-                    print("⚠️ 交互ランダム回転に失敗しましたが、続行します")
+                motor_controller.perform_random_rotation_for_reselection()
             
-            # ステップ2: 待機（同じ人の再検出を避ける）
-            print("\n【ステップ2】待機中（3秒）...")
+            # 待機（同じ人の再検出を避ける）
             await asyncio.sleep(3.0)
             
-            # ステップ3: 回答待ち状態を解除
+            # 回答待ち状態を解除
             motor_state["is_stopped_for_answer"] = False
             motor_state["snapshot_image"] = None
             motor_state["detection_timestamp"] = None
             
-            # ステップ4: 処理完了を通知
-            print("\n【ステップ3】クライアントに処理完了を通知")
+            # 処理完了を通知
             await broadcast_message({
                 "type": "motor_processing",
                 "message": "処理完了",
@@ -207,16 +178,11 @@ async def resume_motor():
             })
             await asyncio.sleep(0.5)
             
-            # ステップ5: 通常の回転を再開
-            print("\n【ステップ4】通常回転を再開")
+            # 通常の回転を再開
             if not motor_controller.is_running and motor_controller.is_initialized:
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
                 motor_state["is_running"] = True
-                print("✓ モーター再開完了")
-            
-            print("="*60)
-            print()
             
             return {"status": "resumed", "message": "回答者再選択完了"}
         else:
@@ -226,19 +192,11 @@ async def resume_motor():
 @app.websocket("/ws/detection")
 async def websocket_detection(websocket: WebSocket):
     """物体検出WebSocketエンドポイント"""
-    print(f"🔌 WebSocket接続受信: /ws/detection")
     await websocket.accept()
     active_connections.add(websocket)
-    print(f"   アクティブ接続数: {len(active_connections)}")
-    
-    print(f"   detector: {is_detector_ready()}")
-    print(f"   motor_controller: {motor_controller is not None}")
-    print(f"   motor_controller.is_initialized: {motor_controller.is_initialized if motor_controller else 'N/A'}")
-    print(f"   detection_running: {get_detection_running()}")
     
     if is_detector_ready() and motor_controller is not None and motor_controller.is_initialized:
         if not get_detection_running():
-            print("✅ 物体検出を開始します")
             set_detection_running(True)
             
             # モーター初回起動
@@ -247,10 +205,7 @@ async def websocket_detection(websocket: WebSocket):
             with motor_state_lock:
                 motor_state["is_running"] = True
             
-            print("🚀 run_detection タスクを作成")
             asyncio.create_task(run_detection(motor_controller, broadcast_message))
-        else:
-            print("⚠️ 既に検出が実行中です")
     
     try:
         while True:
@@ -274,64 +229,11 @@ async def websocket_detection(websocket: WebSocket):
 @app.websocket("/ws/speech")
 async def websocket_speech(websocket: WebSocket):
     """音声認識WebSocketエンドポイント"""
-    print("\n" + "="*60)
-    print("🔌 音声認識WebSocket接続受信")
-    print("="*60)
-    
     await websocket.accept()
     connection_id = str(id(websocket))
     
-    print(f"✅ WebSocket接続確立 - ID: {connection_id}")
-    
-    # モジュールのグローバル変数を直接参照
-    print(f"📊 vosk_model: {voice_recognition.vosk_model is not None}")
-    print(f"📊 vad_model: {voice_recognition.vad_model is not None}")
-    
-    # モデルが初期化されていない場合はエラーメッセージをクライアントに送信
-    if voice_recognition.vosk_model is None:
-        print("❌ Voskモデルが初期化されていません")
-        await websocket.send_json({
-            "type": "speech_error",
-            "error": "Voskモデルが初期化されていません。サーバーログを確認してください。"
-        })
-    else:
-        print("✅ Voskモデル利用可能")
-    
-    if voice_recognition.vad_model is None:
-        print("❌ VADモデルが初期化されていません")
-        await websocket.send_json({
-            "type": "speech_error",
-            "error": "VADモデルが初期化されていません。サーバーログを確認してください。"
-        })
-    else:
-        print("✅ VADモデル利用可能")
-    
-    print("="*60)
-    print("🎯 FastKeywordSpotter初期化")
-    print(f"接続ID: {connection_id}")
-    print("="*60)
-    
     spotter = voice_recognition.FastKeywordSpotter(connection_id)
     audio_buffers[connection_id] = spotter
-    
-    print("✅ FastKeywordSpotter作成完了")
-    print("="*60 + "\n")
-    
-    # 初期化状態をクライアントに通知
-    if voice_recognition.vosk_model is not None and voice_recognition.vad_model is not None:
-        await websocket.send_json({
-            "type": "speech_status",
-            "status": "ready",
-            "message": "音声認識の準備が完了しました"
-        })
-    else:
-        await websocket.send_json({
-            "type": "speech_status",
-            "status": "error",
-            "message": "音声認識モデルの初期化に失敗しました"
-        })
-    
-    audio_chunk_count = 0
     
     try:
         while True:
@@ -348,15 +250,7 @@ async def websocket_speech(websocket: WebSocket):
                 
                 elif "bytes" in message:
                     audio_bytes = message["bytes"]
-                    audio_chunk_count += 1
                     
-                    # 最初のチャンクと10個ごとにログ
-                    if audio_chunk_count == 1:
-                        print(f"🎵 最初の音声チャンク受信: {len(audio_bytes)} bytes")
-                    elif audio_chunk_count % 10 == 0:
-                        print(f"🎵 音声チャンク: {audio_chunk_count}個目")
-                    
-                    # モジュールのグローバル変数を直接チェック
                     if voice_recognition.vosk_model is not None and voice_recognition.vad_model is not None:
                         try:
                             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
@@ -365,18 +259,10 @@ async def websocket_speech(websocket: WebSocket):
                             result = spotter.process_audio_chunk(audio_float)
                             
                             if result:
-                                print(f"🎯 認識結果送信: {result}")
                                 await websocket.send_json(result)
                         
                         except Exception as e:
-                            print(f"❌ 音声処理エラー: {e}")
-                            import traceback
-                            traceback.print_exc()
-                    else:
-                        if audio_chunk_count == 1:
-                            print(f"⚠️ モデル未初期化のため音声処理スキップ")
-                            print(f"   vosk_model: {voice_recognition.vosk_model is not None}")
-                            print(f"   vad_model: {voice_recognition.vad_model is not None}")
+                            pass
                 
                 elif "type" in message and message["type"] == "websocket.disconnect":
                     break
@@ -385,13 +271,12 @@ async def websocket_speech(websocket: WebSocket):
                 if "disconnect" in str(e).lower():
                     break
                 else:
-                    print(f"❌ メッセージ受信エラー: {e}")
                     break
     
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"音声認識WebSocketエラー: {e}")
+        pass
     finally:
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]

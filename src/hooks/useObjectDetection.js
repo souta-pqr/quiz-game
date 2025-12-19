@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export const useObjectDetection = (onPlayAudio, onPersonSelected) => {
+export const useObjectDetection = (onPlayAudio, onPersonSelected, onMotorProcessing) => {
   const [isConnected, setIsConnected] = useState(false);
   const [personDetected, setPersonDetected] = useState(false);
   const [detectionCount, setDetectionCount] = useState(0);
@@ -15,12 +15,12 @@ export const useObjectDetection = (onPlayAudio, onPersonSelected) => {
         console.log('✓ 物体検出WebSocket接続');
         setIsConnected(true);
         
-        // Keep-alive ping
+        // Keep-alive ping（60秒に延長して負荷軽減）
         const pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping' }));
           }
-        }, 30000);
+        }, 60000);
         
         ws.pingInterval = pingInterval;
       };
@@ -52,6 +52,11 @@ export const useObjectDetection = (onPlayAudio, onPersonSelected) => {
           if (onPlayAudio) {
             onPlayAudio();
           }
+        } else if (data.type === 'motor_processing') {
+          // モーター処理状態の通知
+          if (onMotorProcessing) {
+            onMotorProcessing(data.status);
+          }
         }
       };
       
@@ -79,7 +84,7 @@ export const useObjectDetection = (onPlayAudio, onPersonSelected) => {
     } catch (error) {
       console.error('WebSocket接続エラー:', error);
     }
-  }, [onPlayAudio, onPersonSelected]);
+  }, [onPlayAudio, onPersonSelected, onMotorProcessing]);
 
   useEffect(() => {
     connect();
