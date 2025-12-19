@@ -408,16 +408,6 @@ const App = () => {
             <span>🎅 ばつ</span>
           </button>
         </div>
-
-        {/* 説明 */}
-        <div className="text-center text-sm text-gray-700 bg-gradient-to-r from-red-50 to-green-50 p-4 rounded-lg border-2 border-red-300 relative overflow-hidden">
-          <div className="absolute top-0 left-0 text-2xl">🎁</div>
-          <div className="absolute top-0 right-0 text-2xl">🎁</div>
-          <p className="mb-1 font-bold text-red-700">⭐ 回答方法 ⭐</p>
-          <p className="mb-1">🤖 モーター回転中に人を検出 → 回答者選択</p>
-          <p className="mb-1">🎤 音声: 「まる」「ばつ」と発話</p>
-          <p>⌨️ キーボード: <kbd className="px-2 py-1 bg-red-200 rounded text-xs font-semibold">O</kbd> = まる、<kbd className="px-2 py-1 bg-green-200 rounded text-xs font-semibold">X</kbd> = ばつ</p>
-        </div>
         
         {/* クリスマス装飾 - フッター */}
         <div className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 text-4xl">
