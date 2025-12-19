@@ -21,32 +21,17 @@ const App = () => {
   const isProcessingRef = useRef(false);
   const audioPlayRequestRef = useRef(false);
 
-  // 正解/不正解の音声を再生（1秒長く）
+  // 正解/不正解の音声を再生
   const playAnswerSound = useCallback((isCorrect) => {
-    return new Promise((resolve) => {
-      try {
-        const audio = new Audio(isCorrect ? '/answer/correct.mp3' : '/answer/incorrect.mp3');
-        audio.volume = 0.7;
-        
-        // 音声終了時に1秒待機してからresolve
-        audio.onended = () => {
-          setTimeout(() => {
-            resolve();
-          }, 1000); // 1秒追加
-        };
-        
-        audio.play().catch(error => {
-          console.error('音声再生エラー:', error);
-          // エラーの場合もresolve（処理を続行）
-          setTimeout(() => {
-            resolve();
-          }, 1000);
-        });
-      } catch (error) {
-        console.error('音声ファイル読み込みエラー:', error);
-        resolve();
-      }
-    });
+    try {
+      const audio = new Audio(isCorrect ? '/answer/correct.mp3' : '/answer/incorrect.mp3');
+      audio.volume = 0.7;
+      audio.play().catch(error => {
+        console.error('音声再生エラー:', error);
+      });
+    } catch (error) {
+      console.error('音声ファイル読み込みエラー:', error);
+    }
   }, []);
 
   // モーター再開API呼び出し
@@ -93,7 +78,7 @@ const App = () => {
   }, []);
 
   // 回答処理
-  const handleAnswer = useCallback(async (userAnswer) => {
+  const handleAnswer = useCallback((userAnswer) => {
     if (isProcessingRef.current) {
       console.log('⏸️ 既に処理中のため、回答をスキップ');
       return;
@@ -112,8 +97,8 @@ const App = () => {
     setRespondentImage(null);
     console.log('🧹 回答者画像をクリア');
     
-    // 正解/不正解の音声を再生（1秒長く待機）
-    await playAnswerSound(isCorrect);
+    // 正解/不正解の音声を再生
+    playAnswerSound(isCorrect);
     
     // 状態を一括更新
     setLastAnswer({ isCorrect, userAnswer });
