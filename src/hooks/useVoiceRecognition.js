@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 /**
- * Whisper音声認識用カスタムフック（Silero VAD統合）
- * マイクから音声を取得し、WebSocket経由でバックエンド（Whisper + VAD）に送信
+ * Vosk音声認識用カスタムフック（Silero VAD統合）
+ * マイクから音声を取得し、WebSocket経由でバックエンド（Vosk + VAD）に送信して「まる」「ばつ」を検出
  */
-export const useWhisperRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000/ws/speech') => {
+export const useVoiceRecognition = (onAnswer, websocketUrl = 'ws://localhost:8000/ws/speech') => {
   const [isListening, setIsListening] = useState(false);
   const [recognizedText, setRecognizedText] = useState('');
   const [recognitionHistory, setRecognitionHistory] = useState([]);

@@ -2,10 +2,10 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import QuizDisplay from './components/QuizDisplay';
 import ScoreBoard from './components/ScoreBoard';
 import ResultScreen from './components/ResultScreen';
-import WhisperRecognition from './components/WhisperRecognition';
+import VoiceRecognition from './components/VoiceRecognition';
 import MotorProcessingOverlay from './components/MotorProcessingOverlay';
 import { useObjectDetection } from './hooks/useObjectDetection';
-import { useWhisperRecognition } from './hooks/useWhisperRecognition';
+import { useVoiceRecognition } from './hooks/useVoiceRecognition';
 import { quizData } from './data/quizData';
 
 const App = () => {
@@ -149,18 +149,18 @@ const App = () => {
     }, 2000);
   }, [currentQuestion, playAnswerSound, resumeMotor]);
 
-  // Whisper音声認識
+  // Vosk音声認識
   const {
-    isListening: isWhisperListening,
-    recognizedText: whisperRecognizedText,
+    isListening: isVoiceListening,
+    recognizedText: voiceRecognizedText,
     recognitionHistory,
-    startListening: startWhisperListening,
-    stopListening: stopWhisperListening,
-    clearHistory: clearWhisperHistory,
-    isSupported: isWhisperSupported,
-    isConnected: isWhisperConnected,
-    debugInfo: whisperDebugInfo
-  } = useWhisperRecognition(handleAnswer);
+    startListening: startVoiceListening,
+    stopListening: stopVoiceListening,
+    clearHistory: clearVoiceHistory,
+    isSupported: isVoiceSupported,
+    isConnected: isVoiceConnected,
+    debugInfo: voiceDebugInfo
+  } = useVoiceRecognition(handleAnswer);
 
   // 物体検出からの音声再生トリガー
   const handlePlayAudioTrigger = useCallback(() => {
@@ -351,18 +351,18 @@ const App = () => {
           respondentImage={respondentImage}
         />
 
-        {/* Whisper音声認識 */}
-        <WhisperRecognition
-          isListening={isWhisperListening}
-          recognizedText={whisperRecognizedText}
+        {/* Vosk音声認識 */}
+        <VoiceRecognition
+          isListening={isVoiceListening}
+          recognizedText={voiceRecognizedText}
           recognitionHistory={recognitionHistory}
           disabled={showFeedback || isMotorProcessing}
-          isSupported={isWhisperSupported}
-          isConnected={isWhisperConnected}
-          debugInfo={whisperDebugInfo}
-          onStart={startWhisperListening}
-          onStop={stopWhisperListening}
-          onClearHistory={clearWhisperHistory}
+          isSupported={isVoiceSupported}
+          isConnected={isVoiceConnected}
+          debugInfo={voiceDebugInfo}
+          onStart={startVoiceListening}
+          onStop={stopVoiceListening}
+          onClearHistory={clearVoiceHistory}
         />
 
         {/* 手動回答ボタン */}

@@ -1,7 +1,11 @@
 import React from 'react';
 import { Mic, MicOff, Volume2, WifiOff, Trash2, Zap } from 'lucide-react';
 
-const WhisperRecognition = ({ 
+/**
+ * VoiceRecognition Component
+ * 音声認識UI（バックエンド: Vosk + Silero VAD）
+ */
+const VoiceRecognition = ({ 
   isListening, 
   recognizedText, 
   recognitionHistory = [],
@@ -34,7 +38,7 @@ const WhisperRecognition = ({
           バックエンドサーバーが起動しているか確認してください。
         </p>
         <div className="text-xs text-red-600 bg-red-100 p-2 rounded font-mono">
-          cd backend && python server.py
+          cd backend && python server_with_motor.py
         </div>
         {debugInfo && (
           <p className="text-xs text-red-600 font-mono bg-red-100 p-2 rounded mt-2">
@@ -119,7 +123,7 @@ const WhisperRecognition = ({
       {recognizedText && (
         <div className="mb-3 p-3 bg-white rounded-lg text-sm border-4 border-green-500 shadow-lg">
           <div className="flex items-center gap-2">
-            <span className="text-green-700 font-bold">🎤 Whisper認識:</span>
+            <span className="text-green-700 font-bold">🎤 音声認識 (Vosk):</span>
             <span className="text-gray-800 font-bold text-lg">{recognizedText}</span>
             <span className="text-xl">🎁</span>
           </div>
@@ -179,8 +183,8 @@ const WhisperRecognition = ({
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-purple-500" />
             <div>
-              <strong>Whisper + Silero VAD:</strong> 音声認識は自動的に開始されます。
-              VADが音声区間を検出すると、Whisperが認識を実行します。
+              <strong>Vosk + Silero VAD:</strong> 音声認識は自動的に開始されます。
+              VADが音声区間を検出すると、Voskが認識を実行します。
             </div>
           </div>
         </div>
@@ -195,4 +199,4 @@ const WhisperRecognition = ({
   );
 };
 
-export default WhisperRecognition;
+export default VoiceRecognition;
