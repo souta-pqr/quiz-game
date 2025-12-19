@@ -168,7 +168,7 @@ class GPIOWrapper:
 # ===================================
 HALF_ROTATION_TIME = 0.9  # 半回転（180°）にかかる時間
 STEP_DURATION = 0.15
-STEP_PAUSE = 0.75
+STEP_PAUSE = 0.50
 
 # グローバル変数
 active_connections: Set[WebSocket] = set()
