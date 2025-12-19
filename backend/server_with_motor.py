@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # 各モジュールのインポート
 from modules.gpio_controller import GPIOWrapper, GPIO_AVAILABLE, GPIO_LIBRARY
 from modules.motor_controller import MotorController
-from modules.object_detector_cascade import (
+from modules.object_detector import (
     initialize_detector, 
     run_detection, 
     motor_state,
@@ -336,4 +336,3 @@ async def websocket_speech(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    
