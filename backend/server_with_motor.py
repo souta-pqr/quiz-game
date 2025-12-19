@@ -459,88 +459,114 @@ class MotorController:
             self.elapsed_time = 0.0
             self.rotation_interrupted = False
     
-    # 🆕 ランダム回転機能（回答者再選択用）
+    # 🆕 ランダム回転機能（回答者再選択用） - 交互動作版
     def perform_random_rotation_for_reselection(self):
-        """回答者再選択のためのランダム回転
+        """回答者再選択のためのランダム回転（CW/CCW交互動作）
         
-        現在位置を考慮して、可動範囲内でランダムな方向・時間で回転する。
-        最大回転時間は0.5秒（約100°相当）。
+        CWとCCWを交互にランダムな時間で回転（各最大0.7秒）
+        合計2〜3秒間動作して、回答者を再選択する
         """
         with self.lock:
             if not self.is_initialized:
                 print("⚠️ モーターが初期化されていません")
                 return False
             
-            print(f"\n🎲 回答者再選択: ランダム回転開始")
-            print(f"   現在位置: {self.current_angle:.1f}°")
+            print(f"\n🎲 回答者再選択: CW/CCW交互ランダム回転開始")
+            print(f"   開始位置: {self.current_angle:.1f}°")
             
-            # 現在位置から、各方向にどれだけ動けるかを計算
-            cw_available_degrees = self.MAX_ANGLE - self.current_angle  # 正方向の余地
-            ccw_available_degrees = self.current_angle - self.MIN_ANGLE  # 負方向の余地
+            # 合計回転時間の目標（2〜3秒）
+            target_total_time = random.uniform(2.0, 3.0)
+            print(f"   目標時間: {target_total_time:.2f}秒")
             
-            print(f"   CW可能: {cw_available_degrees:.1f}° / CCW可能: {ccw_available_degrees:.1f}°")
+            # 各回転の最大時間
+            max_single_rotation_time = 0.7  # 秒
             
-            # 回転可能な方向を決定
-            possible_directions = []
-            if cw_available_degrees > 10:  # 最低10°は動けること
-                possible_directions.append("CW")
-            if ccw_available_degrees > 10:
-                possible_directions.append("CCW")
+            # 交互回転の実行
+            total_elapsed = 0.0
+            rotation_count = 0
+            current_direction_is_cw = random.choice([True, False])  # 初回方向をランダムに
             
-            if not possible_directions:
-                print("⚠️ 回転可能な方向がありません（範囲端にいます）")
-                return False
+            print(f"   初回方向: {'CW' if current_direction_is_cw else 'CCW'}")
+            print()
             
-            # ランダムに方向を選択
-            chosen_direction = random.choice(possible_directions)
-            is_cw = (chosen_direction == "CW")
-            
-            # 回転可能な最大角度を計算（最大0.5秒 = 約100°、ただし範囲内に制限）
-            max_rotation_time = 0.5  # 秒
-            max_rotation_degrees = self.degrees_per_second * max_rotation_time
-            
-            if is_cw:
-                max_degrees = min(max_rotation_degrees, cw_available_degrees - 5)  # 5°の余裕
-            else:
-                max_degrees = min(max_rotation_degrees, ccw_available_degrees - 5)
-            
-            # ランダムな回転角度を決定（10° 〜 max_degrees）
-            if max_degrees < 10:
-                rotation_degrees = max_degrees
-            else:
-                rotation_degrees = random.uniform(10, max_degrees)
-            
-            # 回転時間を計算
-            rotation_time = rotation_degrees / self.degrees_per_second
-            
-            print(f"   選択: {chosen_direction} {rotation_degrees:.1f}° （{rotation_time:.2f}秒）")
-            
-            # 実際に回転を実行
             try:
-                if GPIO_AVAILABLE:
-                    GPIOWrapper.output(CW_CCW, ON if is_cw else OFF)
-                    time.sleep(0.01)
-                    GPIOWrapper.output(START_STOP, ON)
-                    time.sleep(0.01)
-                    GPIOWrapper.output(RUN_BRAKE, ON)
+                while total_elapsed < target_total_time:
+                    rotation_count += 1
+                    
+                    # 残り時間を計算
+                    remaining_time = target_total_time - total_elapsed
+                    
+                    # 今回の回転時間を決定（残り時間と最大時間の小さい方）
+                    max_this_time = min(max_single_rotation_time, remaining_time)
+                    
+                    # ランダムな回転時間（0.2秒〜max_this_time）
+                    if max_this_time < 0.2:
+                        this_rotation_time = max_this_time
+                    else:
+                        this_rotation_time = random.uniform(0.2, max_this_time)
+                    
+                    # 現在位置から動ける範囲をチェック
+                    if current_direction_is_cw:
+                        available_degrees = self.MAX_ANGLE - self.current_angle - 5  # 5°マージン
+                    else:
+                        available_degrees = self.current_angle - self.MIN_ANGLE - 5
+                    
+                    # 回転角度を計算
+                    desired_degrees = self.degrees_per_second * this_rotation_time
+                    
+                    # 範囲制限
+                    if available_degrees < 5:
+                        print(f"   [{rotation_count}] {'CW' if current_direction_is_cw else 'CCW'}: 範囲端のためスキップ")
+                        # 方向を反転して次へ
+                        current_direction_is_cw = not current_direction_is_cw
+                        continue
+                    
+                    actual_degrees = min(desired_degrees, available_degrees)
+                    actual_time = actual_degrees / self.degrees_per_second
+                    
+                    print(f"   [{rotation_count}] {'CW' if current_direction_is_cw else 'CCW'}: {actual_degrees:.1f}° ({actual_time:.2f}秒)")
+                    
+                    # 実際に回転を実行
+                    if GPIO_AVAILABLE:
+                        GPIOWrapper.output(CW_CCW, ON if current_direction_is_cw else OFF)
+                        time.sleep(0.01)
+                        GPIOWrapper.output(START_STOP, ON)
+                        time.sleep(0.01)
+                        GPIOWrapper.output(RUN_BRAKE, ON)
+                    
+                    # 回転時間だけ待機
+                    time.sleep(actual_time)
+                    
+                    if GPIO_AVAILABLE:
+                        GPIOWrapper.output(RUN_BRAKE, OFF)
+                        time.sleep(0.01)
+                        GPIOWrapper.output(START_STOP, OFF)
+                    
+                    # 角度位置を更新
+                    self._update_angle(current_direction_is_cw, actual_time)
+                    
+                    # 累計時間を更新
+                    total_elapsed += actual_time
+                    
+                    # 短い停止（次の方向への切り替え）
+                    time.sleep(0.05)
+                    
+                    # 方向を反転
+                    current_direction_is_cw = not current_direction_is_cw
                 
-                # 回転時間だけ待機
-                time.sleep(rotation_time)
-                
-                if GPIO_AVAILABLE:
-                    GPIOWrapper.output(RUN_BRAKE, OFF)
-                    time.sleep(0.01)
-                    GPIOWrapper.output(START_STOP, OFF)
-                
-                # 角度位置を更新
-                self._update_angle(is_cw, rotation_time)
-                
-                print(f"✓ ランダム回転完了: 新位置 {self.current_angle:.1f}°")
+                print(f"\n✓ 交互ランダム回転完了:")
+                print(f"   回転回数: {rotation_count}回")
+                print(f"   合計時間: {total_elapsed:.2f}秒")
+                print(f"   最終位置: {self.current_angle:.1f}°")
                 print()
                 return True
                 
             except Exception as e:
-                print(f"❌ ランダム回転中エラー: {e}")
+                print(f"❌ 交互ランダム回転中エラー: {e}")
+                # エラー時は停止
+                if GPIO_AVAILABLE:
+                    GPIOWrapper.output(RUN_BRAKE, OFF)
+                    GPIOWrapper.output(START_STOP, OFF)
                 return False
 
 
@@ -1004,10 +1030,12 @@ async def status():
 async def resume_motor():
     """モーター再開API（解説終了後に呼ばれる）
     
-    🆕 回答者再選択機能:
-    1. 現在の位置からランダムに回転（最大0.5秒）
-    2. 3秒待機（同じ人の再検出を避ける）
-    3. 通常の回転を再開
+    🆕 回答者再選択機能（交互ランダム回転版）:
+    1. 「モーター処理中」をクライアントに通知
+    2. CWとCCWを交互にランダムに回転（合計2〜3秒、各最大0.7秒）
+    3. 3秒待機（同じ人の再検出を避ける）
+    4. 処理完了をクライアントに通知
+    5. 通常の回転を再開
     """
     global motor_state
     
@@ -1017,12 +1045,21 @@ async def resume_motor():
             print("🔄 モーター再開リクエスト受信")
             print("="*60)
             
-            # ステップ1: ランダム回転で回答者を再選択
-            print("\n【ステップ1】回答者再選択のためランダム回転")
+            # ステップ0: モーター処理中を通知
+            print("\n【ステップ0】クライアントに処理開始を通知")
+            await broadcast_message({
+                "type": "motor_processing",
+                "message": "次の回答者を選んでいます...",
+                "status": "started"
+            })
+            await asyncio.sleep(0.5)  # 画面表示のため少し待機
+            
+            # ステップ1: 交互ランダム回転で回答者を再選択
+            print("\n【ステップ1】回答者再選択のため交互ランダム回転")
             if motor_controller and motor_controller.is_initialized:
                 success = motor_controller.perform_random_rotation_for_reselection()
                 if not success:
-                    print("⚠️ ランダム回転に失敗しましたが、続行します")
+                    print("⚠️ 交互ランダム回転に失敗しましたが、続行します")
             
             # ステップ2: 待機（同じ人の再検出を避ける）
             print("\n【ステップ2】待機中（3秒）...")
@@ -1033,8 +1070,17 @@ async def resume_motor():
             motor_state["snapshot_image"] = None
             motor_state["detection_timestamp"] = None
             
-            # ステップ4: 通常の回転を再開
-            print("\n【ステップ3】通常回転を再開")
+            # ステップ4: 処理完了を通知
+            print("\n【ステップ3】クライアントに処理完了を通知")
+            await broadcast_message({
+                "type": "motor_processing",
+                "message": "処理完了",
+                "status": "completed"
+            })
+            await asyncio.sleep(0.5)  # 画面を閉じるための時間
+            
+            # ステップ5: 通常の回転を再開
+            print("\n【ステップ4】通常回転を再開")
             if not motor_controller.is_running and motor_controller.is_initialized:
                 motor_controller.get_next_rotation_direction()
                 motor_controller.start_slow_rotation()
@@ -1044,7 +1090,7 @@ async def resume_motor():
             print("="*60)
             print()
             
-            return {"status": "resumed", "message": "回答者再選択完了"}
+            return {"status": "resumed", "message": "回答者再選択完了（交互ランダム回転）"}
         else:
             return {"status": "not_stopped", "message": "回答待ち状態ではありません"}
 
