@@ -3,6 +3,7 @@ import QuizDisplay from './components/QuizDisplay';
 import ScoreBoard from './components/ScoreBoard';
 import ResultScreen from './components/ResultScreen';
 import WhisperRecognition from './components/WhisperRecognition';
+import MotorProcessingOverlay from './components/MotorProcessingOverlay';
 import { useObjectDetection } from './hooks/useObjectDetection';
 import { useWhisperRecognition } from './hooks/useWhisperRecognition';
 import { quizData } from './data/quizData';
@@ -15,7 +16,8 @@ const App = () => {
   const [showFeedback, setShowFeedback] = useState(false);
   const [lastAnswer, setLastAnswer] = useState(null);
   const [shouldPlayAudio, setShouldPlayAudio] = useState(false);
-  const [respondentImage, setRespondentImage] = useState(null); // 回答者画像
+  const [respondentImage, setRespondentImage] = useState(null);
+  const [isMotorProcessing, setIsMotorProcessing] = useState(false); // 🆕 モーター処理中フラグ
   const isProcessingRef = useRef(false);
   const audioPlayRequestRef = useRef(false);
 
@@ -50,6 +52,29 @@ const App = () => {
     } catch (error) {
       console.error('❌ モーター再開API呼び出しエラー:', error);
     }
+  }, []);
+
+  // 🆕 WebSocketでモーター処理状態を監視
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/detection');
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'motor_processing') {
+        if (data.status === 'started') {
+          console.log('🔄 モーター処理開始');
+          setIsMotorProcessing(true);
+        } else if (data.status === 'completed') {
+          console.log('✓ モーター処理完了');
+          setIsMotorProcessing(false);
+        }
+      }
+    };
+    
+    return () => {
+      ws.close();
+    };
   }, []);
 
   // 回答処理
@@ -106,7 +131,7 @@ const App = () => {
         if (nextQuestion < quizData.length) {
           console.log(`➡️ 次の問題へ移行: ${nextQuestion + 1}/${quizData.length}`);
           
-          // モーター再開を非同期で実行
+          // モーター再開を非同期で実行（処理中画面が表示される）
           resumeMotor().then(() => {
             console.log('✅ モーター再開完了');
           });
@@ -168,7 +193,7 @@ const App = () => {
   // キーボードイベント
   useEffect(() => {
     const handleKeyPress = (event) => {
-      if (showFeedback || gameState !== 'playing') {
+      if (showFeedback || gameState !== 'playing' || isMotorProcessing) {
         return;
       }
 
@@ -187,13 +212,13 @@ const App = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, [handleAnswer, showFeedback, gameState]);
+  }, [handleAnswer, showFeedback, gameState, isMotorProcessing]);
 
   // フィードバック中は音声認識を一時停止
   useEffect(() => {
-    if (showFeedback) {
+    if (showFeedback || isMotorProcessing) {
       if (isWhisperListening) {
-        console.log('⏸️ フィードバック表示中：音声認識を一時停止');
+        console.log('⏸️ フィードバック/モーター処理中：音声認識を一時停止');
         stopWhisperListening();
       }
     } else if (gameState === 'playing') {
@@ -207,7 +232,7 @@ const App = () => {
       
       return () => clearTimeout(restartTimer);
     }
-  }, [showFeedback, gameState]);
+  }, [showFeedback, gameState, isMotorProcessing]);
 
   const resetGame = useCallback(() => {
     console.log('🔄 ゲームをリセット中...');
@@ -216,6 +241,7 @@ const App = () => {
     setShowFeedback(false);
     setLastAnswer(null);
     setRespondentImage(null);
+    setIsMotorProcessing(false);
     isProcessingRef.current = false;
     audioPlayRequestRef.current = false;
     setShouldPlayAudio(false);
@@ -269,6 +295,9 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-700 via-green-700 to-red-800 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* 🆕 モーター処理中オーバーレイ */}
+      <MotorProcessingOverlay isVisible={isMotorProcessing} />
+      
       {/* 雪の結晶アニメーション */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-10 left-10 text-white text-4xl animate-bounce">❄️</div>
@@ -332,7 +361,7 @@ const App = () => {
           isListening={isWhisperListening}
           recognizedText={whisperRecognizedText}
           recognitionHistory={recognitionHistory}
-          disabled={showFeedback}
+          disabled={showFeedback || isMotorProcessing}
           isSupported={isWhisperSupported}
           isConnected={isWhisperConnected}
           debugInfo={whisperDebugInfo}
@@ -345,7 +374,7 @@ const App = () => {
         <div className="flex gap-4 mb-4">
           <button
             onClick={() => handleAnswer(true)}
-            disabled={showFeedback}
+            disabled={showFeedback || isMotorProcessing}
             className="flex-1 bg-gradient-to-br from-green-500 to-green-700 text-white py-4 rounded-xl font-bold text-xl hover:from-green-600 hover:to-green-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl border-4 border-green-300"
             style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}
           >
@@ -356,7 +385,7 @@ const App = () => {
           </button>
           <button
             onClick={() => handleAnswer(false)}
-            disabled={showFeedback}
+            disabled={showFeedback || isMotorProcessing}
             className="flex-1 bg-gradient-to-br from-red-500 to-red-700 text-white py-4 rounded-xl font-bold text-xl hover:from-red-600 hover:to-red-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl border-4 border-red-300"
             style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}
           >
