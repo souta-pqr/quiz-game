@@ -1,11 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-- gpio_controller.py: GPIO制御
-- motor_controller.py: モーター制御
-- object_detector.py: 物体検出
-- voice_recognition.py: 音声認識
-"""
 
 import asyncio
 import json
@@ -18,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # 各モジュールのインポート
 from modules.gpio_controller import GPIOWrapper, GPIO_AVAILABLE, GPIO_LIBRARY
 from modules.motor_controller import MotorController
-from modules.object_detector import (
+from modules.object_detector_cascade import (
     initialize_detector, 
     run_detection, 
     motor_state,
@@ -44,11 +38,36 @@ audio_buffers = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """ライフサイクル管理"""
+    print("\n" + "="*80)
+    print("🚀 サーバー起動処理開始")
+    print("="*80 + "\n")
+    
+    # 初期化順序
+    print("1️⃣ 物体検出初期化...")
     initialize_detector()
+    
+    print("\n2️⃣ VAD初期化...")
     initialize_vad()
+    
+    print("\n3️⃣ Vosk初期化...")
     initialize_vosk()
+    
+    print("\n4️⃣ モーター初期化...")
     initialize_motor()
+    
+    print("\n" + "="*80)
+    print("✅ サーバー起動処理完了")
+    print("="*80)
+    print(f"📊 初期化状態:")
+    print(f"  - 物体検出: {is_detector_ready()}")
+    print(f"  - VADモデル: {vad_model is not None}")
+    print(f"  - Voskモデル: {vosk_model is not None}")
+    print(f"  - モーター: {motor_controller is not None and motor_controller.is_initialized}")
+    print(f"  - GPIO: {GPIO_LIBRARY if GPIO_AVAILABLE else 'ダミーモード'}")
+    print("="*80 + "\n")
+    
     yield
+    
     cleanup_motor()
     print("サーバーをシャットダウンしています...")
 
@@ -108,8 +127,8 @@ async def broadcast_message(message: dict):
 @app.get("/")
 async def root():
     return {
-        "message": "クイズゲーム用モーター制御統合サーバー",
-        "version": "2.0",
+        "message": "クイズゲーム用モーター制御統合サーバー（デバッグ版）",
+        "version": "2.1-debug",
         "websocket_endpoints": {
             "detection": "/ws/detection",
             "speech": "/ws/speech"
@@ -123,7 +142,7 @@ async def root():
             "位置追跡（-90° 〜 +90°）",
             "回答者再選択（ランダム回転）",
             "ケーブル巻き込み防止",
-            "モジュール分割によるコード整理"
+            "デバッグログ強化"
         ]
     }
 
@@ -256,28 +275,65 @@ async def websocket_detection(websocket: WebSocket):
 
 @app.websocket("/ws/speech")
 async def websocket_speech(websocket: WebSocket):
-    """音声認識WebSocketエンドポイント"""
+    """音声認識WebSocketエンドポイント（デバッグ強化版）"""
+    print("\n" + "="*60)
+    print("🔌 音声認識WebSocket接続受信")
+    print("="*60)
+    
     await websocket.accept()
     connection_id = str(id(websocket))
     
+    print(f"✅ WebSocket接続確立 - ID: {connection_id}")
+    print(f"📊 vosk_model: {vosk_model is not None}")
+    print(f"📊 vad_model: {vad_model is not None}")
+    
+    if vosk_model is None:
+        print("❌ Voskモデルが初期化されていません")
+        await websocket.send_json({
+            'type': 'speech_error',
+            'error': 'Voskモデルが初期化されていません。サーバーログを確認してください。'
+        })
+    
+    if vad_model is None:
+        print("❌ VADモデルが初期化されていません")
+        await websocket.send_json({
+            'type': 'speech_error',
+            'error': 'VADモデルが初期化されていません。サーバーログを確認してください。'
+        })
+    
     spotter = FastKeywordSpotter(connection_id)
     audio_buffers[connection_id] = spotter
+    
+    print(f"✅ FastKeywordSpotter作成完了")
+    print("="*60 + "\n")
+    
+    message_count = 0
+    audio_chunk_count = 0
     
     try:
         while True:
             try:
                 message = await websocket.receive()
+                message_count += 1
                 
                 if "text" in message:
                     try:
                         data = json.loads(message["text"])
                         if data.get("type") == "ping":
                             await websocket.send_json({"type": "pong"})
+                            if message_count % 10 == 0:
+                                print(f"💓 Ping受信 ({message_count}メッセージ目)")
                     except json.JSONDecodeError:
                         pass
                 
                 elif "bytes" in message:
                     audio_bytes = message["bytes"]
+                    audio_chunk_count += 1
+                    
+                    if audio_chunk_count == 1:
+                        print(f"🎵 最初の音声チャンク受信: {len(audio_bytes)} bytes")
+                    elif audio_chunk_count % 50 == 0:
+                        print(f"🎵 音声チャンク受信中: {audio_chunk_count}個目")
                     
                     if vosk_model is not None and vad_model is not None:
                         try:
@@ -287,30 +343,50 @@ async def websocket_speech(websocket: WebSocket):
                             result = spotter.process_audio_chunk(audio_float)
                             
                             if result:
+                                print(f"📤 認識結果をクライアントに送信: {result}")
                                 await websocket.send_json(result)
                         
                         except Exception as e:
                             print(f"❌ 音声処理エラー: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        if audio_chunk_count == 1:
+                            print(f"⚠️ モデル未初期化のため音声処理スキップ")
                 
                 elif "type" in message and message["type"] == "websocket.disconnect":
+                    print(f"🔌 クライアントから切断要求")
                     break
             
             except Exception as e:
                 if "disconnect" in str(e).lower():
+                    print(f"🔌 接続切断検出")
                     break
                 else:
                     print(f"❌ メッセージ受信エラー: {e}")
+                    import traceback
+                    traceback.print_exc()
                     break
     
     except WebSocketDisconnect:
-        pass
+        print(f"🔌 WebSocket切断 (WebSocketDisconnect)")
     except Exception as e:
-        print(f"音声認識WebSocketエラー: {e}")
+        print(f"❌ 音声認識WebSocketエラー: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if connection_id in audio_buffers:
             del audio_buffers[connection_id]
+        
+        print(f"\n{'='*60}")
+        print(f"🔌 音声認識WebSocket接続終了 - ID: {connection_id}")
+        print(f"📊 受信メッセージ数: {message_count}")
+        print(f"📊 音声チャンク数: {audio_chunk_count}")
+        print(f"📊 認識回数: {spotter.recognition_count if spotter else 0}")
+        print("="*60 + "\n")
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
