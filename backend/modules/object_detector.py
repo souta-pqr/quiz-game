@@ -26,6 +26,18 @@ motor_state = {
 motor_state_lock = threading.RLock()
 
 
+def set_detection_running(value: bool):
+    """detection_runningの値を設定"""
+    global detection_running
+    detection_running = value
+
+
+def get_detection_running() -> bool:
+    """detection_runningの値を取得"""
+    global detection_running
+    return detection_running
+
+
 def initialize_detector():
     """物体検出初期化"""
     global detector

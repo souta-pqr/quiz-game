@@ -23,7 +23,9 @@ from modules.object_detector import (
     run_detection, 
     detector, 
     motor_state,
-    motor_state_lock
+    motor_state_lock,
+    set_detection_running,
+    get_detection_running
 )
 from modules.voice_recognition import (
     initialize_vosk,
@@ -211,9 +213,8 @@ async def websocket_detection(websocket: WebSocket):
     active_connections.add(websocket)
     
     if detector is not None and motor_controller is not None and motor_controller.is_initialized:
-        from modules import object_detector
-        if not object_detector.detection_running:
-            object_detector.detection_running = True
+        if not get_detection_running():
+            set_detection_running(True)
             
             # モーター初回起動
             await asyncio.sleep(2)
@@ -236,8 +237,7 @@ async def websocket_detection(websocket: WebSocket):
         active_connections.remove(websocket)
         
         if len(active_connections) == 0:
-            from modules import object_detector
-            object_detector.detection_running = False
+            set_detection_running(False)
     except Exception as e:
         print(f"物体検出WebSocketエラー: {e}")
         active_connections.discard(websocket)
