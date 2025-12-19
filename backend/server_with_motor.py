@@ -464,7 +464,7 @@ class MotorController:
         """回答者再選択のためのランダム回転（CW/CCW交互動作）
         
         CWとCCWを交互にランダムな時間で回転（各最大0.7秒）
-        合計2〜3秒間動作して、回答者を再選択する
+        合計1.0〜2.0秒間動作して、回答者を再選択する
         """
         with self.lock:
             if not self.is_initialized:
@@ -474,8 +474,8 @@ class MotorController:
             print(f"\n🎲 回答者再選択: CW/CCW交互ランダム回転開始")
             print(f"   開始位置: {self.current_angle:.1f}°")
             
-            # 合計回転時間の目標（2〜3秒）
-            target_total_time = random.uniform(2.0, 3.0)
+            # 合計回転時間の目標（1〜2秒）
+            target_total_time = random.uniform(1.0, 2.0)
             print(f"   目標時間: {target_total_time:.2f}秒")
             
             # 各回転の最大時間
